@@ -1,5 +1,11 @@
 # AutoPrompter: Autonomous Prompt Optimization System
 
+<p align="center">
+  <a href="https://heyneo.so" target="_blank">
+    <img src="https://img.shields.io/badge/Made%20by-NEO-ff3b30?style=for-the-badge&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSJjdXJyZW50Q29sb3IiIHN0cm9rZS13aWR0aD0iMiI+PHBhdGggZD0iTTEyIDJMNCA3djZsOCA1IDgtNXYtNmwtOC01eiIvPjxwYXRoIGQ9Ik00IDEzbDggNSA4LTUiLz48L3N2Zz4=&logoColor=white" alt="Made by NEO">
+  </a>
+</p>
+
 AutoPrompter is an autonomous system designed to iteratively improve LLM prompts through a closed-loop optimization process. It merges the validation and metrics capabilities of tools like `promptfoo` with the iterative improvement logic of `autoresearch`.
 
 ## System Architecture
@@ -89,3 +95,15 @@ python main.py --config config.yaml --max-iterations 50 --override experiment.ba
 ## License
 
 MIT
+
+---
+
+<p align="center">
+  <a href="https://heyneo.so" target="_blank">
+    <img src="https://img.shields.io/badge/Made%20by-NEO-ff3b30?style=for-the-badge&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSJjdXJyZW50Q29sb3IiIHN0cm9rZS13aWR0aD0iMiI+PHBhdGggZD0iTTEyIDJMNCA3djZsOCA1IDgtNXYtNmwtOC01eiIvPjxwYXRoIGQ9Ik00IDEzbDggNSA4LTUiLz48L3N2Zz4=&logoColor=white" alt="Made by NEO">
+  </a>
+</p>
+
+<p align="center">
+  <em>NEO - A fully autonomous AI Engineer</em>
+</p>
