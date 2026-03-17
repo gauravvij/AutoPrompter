@@ -1,0 +1,51 @@
+# Autonomous Prompt Optimization System Configuration - Math Word Problems
+
+# LLM Configuration via OpenRouter
+optimizer_llm:
+  model: "google/gemini-3-flash-preview"
+  api_base: "https://openrouter.ai/api/v1"
+  temperature: 0.7
+  max_tokens: 4096
+  
+target_llm:
+  model: "qwen/qwen3.5-9b"
+  api_base: "https://openrouter.ai/api/v1"
+  temperature: 0.1
+  max_tokens: 4096
+
+# Experiment Configuration
+experiment:
+  max_iterations: 5  # Total number of experiments to run
+  convergence_threshold: 0.95
+  min_improvement: 0.01
+  batch_size: 5  # Number of test cases to generate and use per experiment
+
+# Task Definition - 3-Step Math Word Problems
+task:
+  name: "technical_blog_writing"
+  description: |
+    Write a detailed technical blog post on a given topic that includes:
+    - An engaging introduction that hooks the reader
+    - Clear explanations of technical concepts with examples
+    - A step-by-step walkthrough of a relevant technical problem or case study
+    - A conclusion that summarizes key takeaways and encourages further exploration
+    
+    The blog post should be well-structured, informative, and accessible to readers with a technical background.
+  initial_prompt: "Write a detailed technical blog post on the given topic."
+
+# Metric Configuration - Using 'contains' for math problems to check for correct answer
+metric:
+  type: "contains"  # 'contains' checks if expected answer content is in the response
+  target_score: 0.85
+
+# Context Management
+context:
+  max_experiments_in_context: 15  # Reduced for complex task context
+  compression_threshold: 40
+
+# Storage
+storage:
+  ledger_file: "experiment_ledger_math.json"
+  dataset_file: "generated_dataset_math.json"
+  results_dir: "results_math"
+  checkpoint_interval: 5

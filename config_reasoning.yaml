@@ -1,0 +1,57 @@
+# Autonomous Prompt Optimization System Configuration - Complex Multi-Step Reasoning Task
+
+# LLM Configuration via OpenRouter
+optimizer_llm:
+  model: "google/gemini-3.1-flash-lite-preview"
+  api_base: "https://openrouter.ai/api/v1"
+  temperature: 0.7
+  max_tokens: 4096
+  
+target_llm:
+  model: "qwen/qwen3.5-9b"
+  api_base: "https://openrouter.ai/api/v1"
+  temperature: 0.1
+  max_tokens: 2048
+
+# Experiment Configuration
+experiment:
+  max_iterations: 1  # Total number of experiments to run
+  convergence_threshold: 0.95
+  min_improvement: 0.01
+  batch_size: 10  # Number of test cases to generate and use per experiment
+  
+# Task Definition - Complex Multi-Step Logical Reasoning
+# This task requires the model to:
+# 1. Parse structured information from text
+# 2. Apply logical rules and constraints
+# 3. Perform multi-step deductions
+# 4. Handle edge cases and incomplete information
+task:
+  name: "logical_reasoning"
+  description: |
+    Solve multi-step logical reasoning problems involving:
+    - Constraint satisfaction (scheduling, allocation problems)
+    - Deductive reasoning (syllogisms, logical implications)
+    - Information extraction from structured text
+    - Multi-hop reasoning (connecting facts across multiple steps)
+    - Handling uncertainty and incomplete information
+    
+    The model must show step-by-step reasoning and provide a clear final answer.
+  initial_prompt: "Solve the following logical reasoning problem."
+  
+# Metric Configuration - Using 'contains' for reasoning tasks to handle format variations
+metric:
+  type: "contains"  # 'contains' checks if expected answer content is in the response
+  target_score: 0.85
+  
+# Context Management
+context:
+  max_experiments_in_context: 15  # Reduced for complex task context
+  compression_threshold: 40
+  
+# Storage
+storage:
+  ledger_file: "experiment_ledger_reasoning.json"
+  dataset_file: "generated_dataset_reasoning.json"
+  results_dir: "results_reasoning"
+  checkpoint_interval: 5

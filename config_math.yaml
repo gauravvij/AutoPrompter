@@ -1,0 +1,52 @@
+# Autonomous Prompt Optimization System Configuration - Math Word Problems
+
+# LLM Configuration via OpenRouter
+optimizer_llm:
+  model: "google/gemini-3-flash-preview"
+  api_base: "https://openrouter.ai/api/v1"
+  temperature: 0.7
+  max_tokens: 4096
+  
+target_llm:
+  model: "qwen/qwen3.5-9b"
+  api_base: "https://openrouter.ai/api/v1"
+  temperature: 0.1
+  max_tokens: 2048
+
+# Experiment Configuration
+experiment:
+  max_iterations: 5  # Total number of experiments to run
+  convergence_threshold: 0.95
+  min_improvement: 0.01
+  batch_size: 5  # Number of test cases to generate and use per experiment
+
+# Task Definition - 3-Step Math Word Problems
+task:
+  name: "math_word_problems"
+  description: |
+    Solve multi-step mathematical word problems that require:
+    - Understanding the problem context and extracting relevant numbers
+    - Performing 2-3 sequential calculations to reach the answer
+    - Showing clear step-by-step work
+    - Providing the final numerical answer clearly
+    
+    Problems involve real-world scenarios like shopping, travel, work rates, 
+    percentages, and proportional reasoning.
+  initial_prompt: "Solve the following math word problem. Show your work and provide the final answer."
+
+# Metric Configuration - Using 'contains' for math problems to check for correct answer
+metric:
+  type: "contains"  # 'contains' checks if expected answer content is in the response
+  target_score: 0.85
+
+# Context Management
+context:
+  max_experiments_in_context: 15  # Reduced for complex task context
+  compression_threshold: 40
+
+# Storage
+storage:
+  ledger_file: "experiment_ledger_math.json"
+  dataset_file: "generated_dataset_math.json"
+  results_dir: "results_math"
+  checkpoint_interval: 5

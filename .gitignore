@@ -1,0 +1,10 @@
+__pycache__/
+venv/
+*.log
+experiment_ledger_*.json
+generated_dataset_*.json
+results/
+results_math/
+results_reasoning/
+.env
+.vscode/

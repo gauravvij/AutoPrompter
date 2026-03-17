@@ -1,0 +1,44 @@
+# Autonomous Prompt Optimization System Configuration
+
+# LLM Configuration via OpenRouter
+optimizer_llm:
+  model: "google/gemini-3.1-flash-lite-preview"
+  api_base: "https://openrouter.ai/api/v1"
+  temperature: 0.7
+  max_tokens: 4096
+  
+target_llm:
+  model: "qwen/qwen3.5-9b"
+  api_base: "https://openrouter.ai/api/v1"
+  temperature: 0.1
+  max_tokens: 2048
+
+# Experiment Configuration
+experiment:
+  max_iterations: 10
+  convergence_threshold: 0.95
+  min_improvement: 0.01
+  batch_size: 50  # Number of test cases per iteration
+  
+# Task Definition
+task:
+  name: "text_classification"
+  description: "Classify text into positive or negative sentiment"
+  initial_prompt: "Analyze the sentiment of the following text and respond with only 'positive' or 'negative'."
+  
+# Metric Configuration
+metric:
+  type: "accuracy"  # accuracy, f1, exact_match, contains, semantic_similarity
+  target_score: 0.95
+  
+# Context Management
+context:
+  max_experiments_in_context: 20  # Number of past experiments to include
+  compression_threshold: 50  # Compress history after this many experiments
+  
+# Storage
+storage:
+  ledger_file: "experiment_ledger.json"
+  dataset_file: "generated_dataset.json"
+  results_dir: "results"
+  checkpoint_interval: 10

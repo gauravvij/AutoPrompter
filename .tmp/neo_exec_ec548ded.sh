@@ -1,0 +1,1 @@
+cd /root/prompt_autoresearch && git init && git add . && git commit -m "Initial commit: AutoPrompter autonomous prompt optimization system" && git branch -M main && git remote add origin https://github.com/gauravvij/AutoPrompter && echo "Git repository initialized and committed"
