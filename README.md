@@ -12,7 +12,7 @@ AutoPrompter is an autonomous system designed to iteratively improve LLM prompts
 
 The system operates in a continuous loop where an **Optimizer LLM** refines prompts for a **Target LLM** based on empirical performance data.
 
-1.  **Dataset Generation**: The Optimizer LLM (Gemini 3.1 Flash Lite) generates a synthetic dataset of input/output pairs based on the task description.
+1.  **Dataset Generation**: The Optimizer LLM (Gemini 3.1 Flash - customizable through config.yaml) generates a synthetic dataset of input/output pairs based on the task description.
 2.  **Iterative Improvement**:
     *   The Target LLM (Qwen 3.5 9b) is tested against the current prompt using the generated dataset.
     *   Performance is measured using a defined metric (Accuracy, F1, Semantic Similarity, etc.).
