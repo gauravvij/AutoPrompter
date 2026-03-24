@@ -45,8 +45,10 @@ The system operates in a continuous loop where an **Optimizer LLM** refines prom
     pip install -r requirements.txt
     ```
 
-4.  Configure OpenRouter API Key:
+4.  Configure API Key (for OpenRouter backend):
     Set the `OPENROUTER_API_KEY` environment variable or add it to `/root/.config/openrouter/config`.
+
+    **Note:** API key is only required when using OpenRouter backend. Local backends (Ollama, llama.cpp) do not require API keys.
 
 ## Configuration
 
@@ -58,6 +60,88 @@ The system is configured via YAML files. Key fields include:
 - `task`: `name`, `description`, and `initial_prompt`.
 - `metric`: `type` (e.g., `accuracy`, `semantic_similarity`) and `target_score`.
 - `storage`: Paths for the ledger, dataset, and results.
+
+### Supported Backends
+
+AutoPrompter supports multiple LLM backends:
+
+1. **OpenRouter** (default): Cloud-based LLM access via OpenRouter API
+2. **Ollama**: Local LLM inference using Ollama server
+3. **llama.cpp**: Local LLM inference using llama.cpp server
+
+#### OpenRouter Configuration (Default)
+
+```yaml
+optimizer_llm:
+  backend: "openrouter"
+  model: "google/gemini-3.1-flash-lite-preview"
+  api_base: "https://openrouter.ai/api/v1"
+  temperature: 0.7
+  max_tokens: 4096
+```
+
+#### Ollama Configuration
+
+```yaml
+optimizer_llm:
+  backend: "ollama"
+  model: "llama3.2"
+  host: "http://localhost"
+  port: 11434
+  temperature: 0.7
+  max_tokens: 4096
+```
+
+#### llama.cpp Configuration
+
+```yaml
+optimizer_llm:
+  backend: "llama_cpp"
+  model: "llama-3.2-3b"
+  host: "http://localhost"
+  port: 8080
+  temperature: 0.7
+  max_tokens: 4096
+```
+
+### Setting Up Local Backends
+
+#### Ollama Setup
+
+1. Install Ollama: https://ollama.ai
+2. Pull a model:
+   ```bash
+   ollama pull llama3.2
+   ```
+3. Start the server:
+   ```bash
+   ollama serve
+   ```
+4. Use `config_ollama.yaml` or configure your own with `backend: "ollama"`
+
+#### llama.cpp Setup
+
+1. Build llama.cpp from source: https://github.com/ggerganov/llama.cpp
+2. Download a GGUF model (e.g., from https://huggingface.co/TheBloke)
+3. Start the server:
+   ```bash
+   ./llama-server -m llama-3.2-3b.Q4_K_M.gguf -c 4096 --host 0.0.0.0 --port 8080
+   ```
+4. Use `config_llama_cpp.yaml` or configure your own with `backend: "llama_cpp"`
+
+#### Auto-Detection
+
+You can also use `backend: "auto"` to automatically detect the available backend:
+
+```yaml
+optimizer_llm:
+  backend: "auto"
+  model: "llama3.2"
+  host: "http://localhost"
+  port: 11434
+```
+
+The system will probe both Ollama and llama.cpp endpoints to determine which is available.
 
 ## Usage
 
@@ -83,6 +167,20 @@ The repository includes pre-configured tasks:
   ```bash
   python main.py --config config_reasoning.yaml
   ```
+
+### Using Local Backends
+
+- **Ollama**: Use the Ollama backend for local inference
+  ```bash
+  python main.py --config config_ollama.yaml
+  ```
+
+- **llama.cpp**: Use the llama.cpp backend for local inference
+  ```bash
+  python main.py --config config_llama_cpp.yaml
+  ```
+
+**Note:** Make sure your local backend server is running before starting the optimization process.
 
 ### Command Line Overrides
 

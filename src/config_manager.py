@@ -6,21 +6,23 @@ Handles loading, validation, and dynamic overrides of configuration parameters.
 import yaml
 import os
 import json
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Union
 from dataclasses import dataclass, field, asdict
 
 
 @dataclass
 class LLMConfig:
-    """Configuration for LLM models."""
+    """Configuration for LLM models (OpenRouter backend)."""
     model: str
     api_base: str = "https://openrouter.ai/api/v1"
     temperature: float = 0.7
     max_tokens: int = 4096
     api_key: Optional[str] = None
+    backend: str = "openrouter"  # Backend type: openrouter, ollama, llama_cpp
     
     def __post_init__(self):
-        if self.api_key is None:
+        # Only require API key for OpenRouter backend
+        if self.backend == "openrouter" and self.api_key is None:
             self.api_key = self._load_api_key()
     
     def _load_api_key(self) -> str:
@@ -43,6 +45,27 @@ class LLMConfig:
             "OpenRouter API key not found. Please set it in /root/.config/openrouter/config "
             "or as OPENROUTER_API_KEY environment variable."
         )
+
+
+@dataclass
+class LocalLLMConfig:
+    """Configuration for local LLM backends (Ollama, llama.cpp)."""
+    model: str
+    backend: str = "ollama"  # ollama, llama_cpp, or auto
+    host: str = "http://localhost"
+    port: Optional[int] = None
+    temperature: float = 0.7
+    max_tokens: int = 4096
+    timeout: int = 120
+    min_request_interval: float = 0.1
+    
+    def __post_init__(self):
+        # Set default port if not specified
+        if self.port is None:
+            if self.backend == "ollama":
+                self.port = 11434
+            elif self.backend == "llama_cpp":
+                self.port = 8080
 
 
 @dataclass
@@ -88,8 +111,8 @@ class StorageConfig:
 @dataclass
 class Config:
     """Main configuration container."""
-    optimizer_llm: LLMConfig
-    target_llm: LLMConfig
+    optimizer_llm: Union[LLMConfig, LocalLLMConfig]
+    target_llm: Union[LLMConfig, LocalLLMConfig]
     experiment: ExperimentConfig
     task: TaskConfig
     metric: MetricConfig
@@ -102,9 +125,28 @@ class Config:
         with open(filepath, 'r') as f:
             data = yaml.safe_load(f)
         
+        # Determine which config class to use based on backend
+        optimizer_data = data.get('optimizer_llm', {})
+        target_data = data.get('target_llm', {})
+        
+        # Check if using local backend
+        optimizer_backend = optimizer_data.get('backend', 'openrouter')
+        target_backend = target_data.get('backend', 'openrouter')
+        
+        # Create appropriate config objects
+        if optimizer_backend in ['ollama', 'llama_cpp', 'auto']:
+            optimizer_llm = LocalLLMConfig(**optimizer_data)
+        else:
+            optimizer_llm = LLMConfig(**optimizer_data)
+        
+        if target_backend in ['ollama', 'llama_cpp', 'auto']:
+            target_llm = LocalLLMConfig(**target_data)
+        else:
+            target_llm = LLMConfig(**target_data)
+        
         return cls(
-            optimizer_llm=LLMConfig(**data.get('optimizer_llm', {})),
-            target_llm=LLMConfig(**data.get('target_llm', {})),
+            optimizer_llm=optimizer_llm,
+            target_llm=target_llm,
             experiment=ExperimentConfig(**data.get('experiment', {})),
             task=TaskConfig(**data.get('task', {})),
             metric=MetricConfig(**data.get('metric', {})),
@@ -154,10 +196,26 @@ class Config:
             errors.append("optimizer_llm.model is required")
         if not self.target_llm.model:
             errors.append("target_llm.model is required")
-        if not self.optimizer_llm.api_key:
-            errors.append("optimizer_llm.api_key is required")
-        if not self.target_llm.api_key:
-            errors.append("target_llm.api_key is required")
+        
+        # Only require API key for OpenRouter backend
+        if isinstance(self.optimizer_llm, LLMConfig) and self.optimizer_llm.backend == "openrouter":
+            if not self.optimizer_llm.api_key:
+                errors.append("optimizer_llm.api_key is required for OpenRouter backend")
+        if isinstance(self.target_llm, LLMConfig) and self.target_llm.backend == "openrouter":
+            if not self.target_llm.api_key:
+                errors.append("target_llm.api_key is required for OpenRouter backend")
+        
+        # Validate local backend configs
+        if isinstance(self.optimizer_llm, LocalLLMConfig):
+            if not self.optimizer_llm.model:
+                errors.append("optimizer_llm.model is required for local backend")
+            if self.optimizer_llm.backend not in ['ollama', 'llama_cpp', 'auto']:
+                errors.append(f"optimizer_llm.backend must be one of ['ollama', 'llama_cpp', 'auto'], got '{self.optimizer_llm.backend}'")
+        if isinstance(self.target_llm, LocalLLMConfig):
+            if not self.target_llm.model:
+                errors.append("target_llm.model is required for local backend")
+            if self.target_llm.backend not in ['ollama', 'llama_cpp', 'auto']:
+                errors.append(f"target_llm.backend must be one of ['ollama', 'llama_cpp', 'auto'], got '{self.target_llm.backend}'")
         
         # Validate experiment config
         if self.experiment.max_iterations < 1:

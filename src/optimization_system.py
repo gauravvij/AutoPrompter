@@ -10,8 +10,9 @@ import logging
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import asdict
 
-from config_manager import Config
+from config_manager import Config, LLMConfig, LocalLLMConfig
 from llm_client import LLMClient
+from local_llm_client import LocalLLMClient
 from dataset_generator import DatasetGenerator, DatasetEntry
 from experiment_ledger import ExperimentLedger, ExperimentRecord as Experiment
 from metrics import MetricsEvaluator, MetricDefinition
@@ -37,9 +38,16 @@ class PromptOptimizationSystem:
         """Initialize the optimization system."""
         self.config = config
         
-        # Initialize components
-        self.optimizer_llm = LLMClient(config.optimizer_llm)
-        self.target_llm = LLMClient(config.target_llm)
+        # Initialize components based on backend type
+        if isinstance(config.optimizer_llm, LocalLLMConfig):
+            self.optimizer_llm = LocalLLMClient(config.optimizer_llm)
+        else:
+            self.optimizer_llm = LLMClient(config.optimizer_llm)
+        
+        if isinstance(config.target_llm, LocalLLMConfig):
+            self.target_llm = LocalLLMClient(config.target_llm)
+        else:
+            self.target_llm = LLMClient(config.target_llm)
         
         self.dataset_generator = DatasetGenerator(
             self.optimizer_llm, 
