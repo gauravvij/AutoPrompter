@@ -1,6 +1,7 @@
 """
 Experiment Ledger Module for persistent storage of experiment records.
 Prevents duplicate experiments and maintains history.
+Includes semantic duplicate detection using embeddings.
 """
 
 import json
@@ -13,6 +14,15 @@ from datetime import datetime
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+# Try to import sentence-transformers for semantic duplicate detection
+try:
+    from sentence_transformers import SentenceTransformer
+    import numpy as np
+    SEMANTIC_DETECTION_AVAILABLE = True
+except ImportError:
+    SEMANTIC_DETECTION_AVAILABLE = False
+    logger.warning("sentence-transformers not available, semantic duplicate detection disabled")
 
 
 @dataclass
@@ -48,16 +58,141 @@ class ExperimentRecord:
 
 
 class ExperimentLedger:
-    """Persistent storage for experiment records with duplicate detection."""
+    """Persistent storage for experiment records with duplicate detection.
     
-    def __init__(self, storage_config):
-        """Initialize ledger with storage configuration."""
+    Includes both exact hash-based deduplication and semantic similarity detection
+    using sentence embeddings to catch near-duplicate prompts.
+    """
+    
+    # Class-level embedding model (shared across instances)
+    _embedding_model = None
+    _embedding_model_name = "all-MiniLM-L6-v2"  # Lightweight, fast model
+    
+    def __init__(self, storage_config, semantic_similarity_threshold: float = 0.95):
+        """Initialize ledger with storage configuration.
+        
+        Args:
+            storage_config: Storage configuration
+            semantic_similarity_threshold: Cosine similarity threshold for semantic duplicates (0.0-1.0)
+        """
         self.storage_config = storage_config
         self.ledger_file = storage_config.ledger_file
         self.checkpoint_interval = storage_config.checkpoint_interval
         self.records: List[ExperimentRecord] = []
         self.seen_hashes: set = set()
+        
+        # Semantic duplicate detection settings
+        self.semantic_threshold = semantic_similarity_threshold
+        self.prompt_embeddings: Dict[str, List[float]] = {}  # prompt_hash -> embedding
+        self._init_embedding_model()
+        
         self._load_ledger()
+    
+    def _init_embedding_model(self):
+        """Initialize the embedding model for semantic duplicate detection."""
+        if not SEMANTIC_DETECTION_AVAILABLE:
+            return
+        
+        if ExperimentLedger._embedding_model is None:
+            try:
+                logger.info(f"Loading embedding model: {self._embedding_model_name}")
+                ExperimentLedger._embedding_model = SentenceTransformer(self._embedding_model_name)
+                logger.info("Embedding model loaded successfully")
+            except Exception as e:
+                logger.warning(f"Failed to load embedding model: {e}")
+                ExperimentLedger._embedding_model = None
+    
+    def _compute_embedding(self, prompt: str) -> Optional[List[float]]:
+        """Compute embedding for a prompt.
+        
+        Args:
+            prompt: The prompt text to embed
+        
+        Returns:
+            Embedding vector as list of floats, or None if model unavailable
+        """
+        if not SEMANTIC_DETECTION_AVAILABLE or ExperimentLedger._embedding_model is None:
+            return None
+        
+        try:
+            embedding = ExperimentLedger._embedding_model.encode(prompt, convert_to_numpy=True)
+            return embedding.tolist()
+        except Exception as e:
+            logger.debug(f"Failed to compute embedding: {e}")
+            return None
+    
+    def _cosine_similarity(self, vec1: List[float], vec2: List[float]) -> float:
+        """Compute cosine similarity between two vectors.
+        
+        Args:
+            vec1: First vector
+            vec2: Second vector
+        
+        Returns:
+            Cosine similarity in range [-1, 1]
+        """
+        if not SEMANTIC_DETECTION_AVAILABLE:
+            return 0.0
+        
+        try:
+            v1 = np.array(vec1)
+            v2 = np.array(vec2)
+            
+            norm1 = np.linalg.norm(v1)
+            norm2 = np.linalg.norm(v2)
+            
+            if norm1 == 0 or norm2 == 0:
+                return 0.0
+            
+            return float(np.dot(v1, v2) / (norm1 * norm2))
+        except Exception as e:
+            logger.debug(f"Failed to compute cosine similarity: {e}")
+            return 0.0
+    
+    def is_semantic_duplicate(self, prompt: str, threshold: Optional[float] = None) -> bool:
+        """Check if a prompt is semantically similar to any existing prompt.
+        
+        Args:
+            prompt: The prompt to check
+            threshold: Optional override for similarity threshold
+        
+        Returns:
+            True if a semantic duplicate is found
+        """
+        if not SEMANTIC_DETECTION_AVAILABLE or ExperimentLedger._embedding_model is None:
+            return False  # Fall back to hash-only detection
+        
+        threshold = threshold or self.semantic_threshold
+        
+        # Compute embedding for new prompt
+        new_embedding = self._compute_embedding(prompt)
+        if new_embedding is None:
+            return False
+        
+        # Compare against all existing prompt embeddings
+        for existing_hash, existing_embedding in self.prompt_embeddings.items():
+            similarity = self._cosine_similarity(new_embedding, existing_embedding)
+            if similarity >= threshold:
+                logger.info(f"Semantic duplicate detected (similarity: {similarity:.3f}) - "
+                           f"matches hash {existing_hash[:8]}...")
+                return True
+        
+        return False
+    
+    def add_prompt_embedding(self, prompt: str, prompt_hash: str):
+        """Compute and store embedding for a prompt.
+        
+        Args:
+            prompt: The prompt text
+            prompt_hash: The hash identifier for the prompt
+        """
+        if not SEMANTIC_DETECTION_AVAILABLE or ExperimentLedger._embedding_model is None:
+            return
+        
+        embedding = self._compute_embedding(prompt)
+        if embedding is not None:
+            self.prompt_embeddings[prompt_hash] = embedding
+            logger.debug(f"Stored embedding for prompt hash {prompt_hash[:8]}...")
     
     def _load_ledger(self):
         """Load existing ledger from file."""
@@ -97,8 +232,21 @@ class ExperimentLedger:
             logger.error(f"Failed to save ledger: {e}")
     
     def is_duplicate(self, record: ExperimentRecord) -> bool:
-        """Check if experiment is a duplicate."""
-        return record.experiment_hash in self.seen_hashes
+        """Check if experiment is a duplicate (exact or semantic).
+        
+        First checks exact hash match, then falls back to semantic similarity.
+        """
+        # Check exact hash match first
+        if record.experiment_hash in self.seen_hashes:
+            logger.debug(f"Exact duplicate detected: {record.experiment_hash}")
+            return True
+        
+        # Check semantic similarity
+        if self.is_semantic_duplicate(record.prompt):
+            logger.info(f"Semantic duplicate detected for prompt (hash: {record.experiment_hash[:8]}...)")
+            return True
+        
+        return False
     
     def is_duplicate_experiment(self, record: ExperimentRecord) -> bool:
         """Alias for is_duplicate for compatibility."""
@@ -116,6 +264,9 @@ class ExperimentLedger:
         
         self.records.append(record)
         self.seen_hashes.add(record.experiment_hash)
+        
+        # Store embedding for semantic duplicate detection
+        self.add_prompt_embedding(record.prompt, record.experiment_hash)
         
         # Auto-save on checkpoint interval
         if len(self.records) % self.checkpoint_interval == 0:

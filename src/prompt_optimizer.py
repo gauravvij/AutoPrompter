@@ -5,6 +5,7 @@ Generates improved prompts based on experiment history and results.
 
 import json
 import logging
+import re
 from typing import List, Dict, Any, Optional, Tuple
 from llm_client import LLMClient
 
@@ -171,6 +172,9 @@ Respond with ONLY the improved prompt text, nothing else. Do not include markdow
             current_score: Current performance score
             metric_name: Name of the metric being used
             feedback_summary: Detailed feedback about failures (optional)
+            
+        Returns:
+            Improved prompt string, or None if optimization failed
         """
         logger.info(f"Optimizing prompt (current score: {current_score:.3f})")
         
@@ -184,14 +188,85 @@ Respond with ONLY the improved prompt text, nothing else. Do not include markdow
         
         self.last_score = current_score
         
-        # Activate diversify mode after 2 stagnant iterations
-        if self.stagnation_count >= 2:
+        # Activate diversify mode after 5 stagnant iterations (increased from 2 for robustness)
+        if self.stagnation_count >= 5:
             self.diversify_mode = True
             logger.info("ACTIVATING DIVERSIFICATION MODE - will generate 3 diverse candidates")
             return self._optimize_diverse(context, current_prompt, current_score, metric_name, feedback_summary)
         
         # Standard single-prompt optimization
         return self._optimize_single(context, current_prompt, current_score, metric_name, feedback_summary)
+    
+    def generate_candidates(self, context: str, current_prompt: str,
+                           current_score: float, metric_name: str,
+                           feedback_summary: str = "",
+                           num_candidates: int = 3) -> List[str]:
+        """Generate multiple prompt candidates for parallel evaluation.
+        
+        This method generates N diverse candidates that can be evaluated in parallel
+        by the optimization system, selecting the actual best based on real scores.
+        
+        Args:
+            context: Context from previous experiments
+            current_prompt: Current prompt being optimized
+            current_score: Current performance score
+            metric_name: Name of the metric being used
+            feedback_summary: Detailed feedback about failures
+            num_candidates: Number of candidates to generate (default 3)
+            
+        Returns:
+            List of prompt candidate strings
+        """
+        logger.info(f"Generating {num_candidates} prompt candidates for parallel evaluation...")
+        
+        candidates = []
+        strategies = [
+            "structured_step_by_step",
+            "minimal_directive", 
+            "expert_roleplay",
+            "chain_of_thought",
+            "few_shot_examples"
+        ]
+        
+        # Use diversification strategies for multiple candidates
+        for i in range(min(num_candidates, len(strategies))):
+            strategy = strategies[i]
+            strategy_prompt = self._build_diverse_prompt(
+                context, current_prompt, current_score, metric_name, strategy, feedback_summary
+            )
+            
+            response = self.llm_client.query(
+                strategy_prompt,
+                system_message=f"You are a prompt optimization expert using the '{strategy}' strategy. Provide only the improved prompt text."
+            )
+            
+            if response.success and response.content:
+                candidate = self._clean_prompt_response(response.content)
+                if candidate and candidate != current_prompt:
+                    candidates.append(candidate)
+                    logger.info(f"Candidate {i+1} ({strategy}): {len(candidate)} chars")
+                else:
+                    logger.warning(f"Candidate {i+1} rejected: duplicate or empty")
+            else:
+                logger.warning(f"Failed to generate candidate {i+1}")
+        
+        # If we didn't get enough candidates, add the single-optimized version
+        if len(candidates) < num_candidates:
+            single_prompt = self._build_optimization_prompt(
+                context, current_prompt, current_score, metric_name, feedback_summary
+            )
+            response = self.llm_client.query(
+                single_prompt,
+                system_message="You are a prompt optimization expert. Provide only the improved prompt text."
+            )
+            if response.success and response.content:
+                candidate = self._clean_prompt_response(response.content)
+                if candidate and candidate not in candidates and candidate != current_prompt:
+                    candidates.append(candidate)
+                    logger.info(f"Additional candidate: {len(candidate)} chars")
+        
+        logger.info(f"Generated {len(candidates)} candidates for parallel evaluation")
+        return candidates
     
     def _optimize_single(self, context: str, current_prompt: str,
                          current_score: float, metric_name: str,
@@ -213,6 +288,9 @@ Respond with ONLY the improved prompt text, nothing else. Do not include markdow
         improved_prompt = self._clean_prompt_response(response.content)
         self.optimization_count += 1
         logger.info(f"Generated improved prompt ({len(improved_prompt)} chars)")
+        
+        # Log complexity metrics for the new prompt
+        self.log_prompt_complexity(improved_prompt, current_score, self.optimization_count)
         
         return improved_prompt
     
@@ -257,6 +335,9 @@ Respond with ONLY the improved prompt text, nothing else. Do not include markdow
         self.optimization_count += 1
         self.diversify_mode = False  # Reset after diversification
         self.stagnation_count = 0
+        
+        # Log complexity metrics for the selected diverse prompt
+        self.log_prompt_complexity(best_candidate, current_score, self.optimization_count)
         
         logger.info(f"Selected best diverse prompt ({len(best_candidate)} chars)")
         return best_candidate
@@ -390,6 +471,112 @@ Respond with ONLY the candidate number (1, 2, or 3). No explanation needed."""
             logger.debug("Prompt unchanged after cleaning")
         
         return improved_prompt
+    
+    def compute_complexity_metrics(self, prompt: str) -> Dict[str, Any]:
+        """Compute complexity metrics for a prompt to detect "longer but not better" patterns.
+        
+        Tracks:
+        - Character length
+        - Word count
+        - Instruction count (imperative verbs, numbered steps)
+        - Average sentence length
+        - Structural complexity indicators
+        
+        Args:
+            prompt: The prompt text to analyze
+        
+        Returns:
+            Dictionary with complexity metrics
+        """
+        if not prompt:
+            return {
+                'char_length': 0,
+                'word_count': 0,
+                'instruction_count': 0,
+                'avg_sentence_length': 0.0,
+                'has_numbered_steps': False,
+                'has_bullet_points': False,
+                'complexity_score': 0.0
+            }
+        
+        # Basic metrics
+        char_length = len(prompt)
+        words = prompt.split()
+        word_count = len(words)
+        
+        # Count sentences (rough approximation)
+        sentences = re.split(r'[.!?]+', prompt)
+        sentences = [s.strip() for s in sentences if s.strip()]
+        sentence_count = len(sentences)
+        avg_sentence_length = word_count / sentence_count if sentence_count > 0 else 0.0
+        
+        # Count instructions (imperative verbs and directive patterns)
+        imperative_patterns = [
+            r'\b(please|kindly)?\s*(provide|give|list|explain|describe|analyze|calculate|compute|find|determine|identify|show|tell|write|create|generate|produce|output|return)\b',
+            r'\b(you must|you should|make sure|ensure|be sure|remember to|note that|consider|think about)\b',
+            r'\b(step \d+|first|second|third|next|then|finally|lastly)\b',
+            r'\b(do not|don\'t|never|avoid|refrain from)\b',  # Negative constraints
+        ]
+        
+        instruction_count = 0
+        for pattern in imperative_patterns:
+            matches = re.findall(pattern, prompt, re.IGNORECASE)
+            instruction_count += len(matches)
+        
+        # Check for structural patterns
+        has_numbered_steps = bool(re.search(r'(\d+\.|step \d+)', prompt, re.IGNORECASE))
+        has_bullet_points = bool(re.search(r'(^|\n)\s*[\-\*•]\s+', prompt))
+        has_formatting = bool(re.search(r'```|`[^`]+`|\*\*|__|\[.*?\]\(.*?\)', prompt))
+        
+        # Calculate overall complexity score (normalized 0-1)
+        # Higher score = more complex prompt
+        complexity_factors = [
+            min(char_length / 1000, 1.0),  # Length factor (caps at 1000 chars)
+            min(instruction_count / 10, 1.0),  # Instruction density factor
+            0.2 if has_numbered_steps else 0.0,  # Structured format bonus
+            0.1 if has_bullet_points else 0.0,  # List format bonus
+            0.1 if has_formatting else 0.0,  # Markdown formatting bonus
+        ]
+        complexity_score = sum(complexity_factors) / len(complexity_factors)
+        
+        metrics = {
+            'char_length': char_length,
+            'word_count': word_count,
+            'instruction_count': instruction_count,
+            'avg_sentence_length': round(avg_sentence_length, 2),
+            'has_numbered_steps': has_numbered_steps,
+            'has_bullet_points': has_bullet_points,
+            'has_formatting': has_formatting,
+            'complexity_score': round(complexity_score, 3)
+        }
+        
+        logger.debug(f"Complexity metrics for prompt: {metrics}")
+        return metrics
+    
+    def log_prompt_complexity(self, prompt: str, score: float, iteration: int):
+        """Log complexity metrics for a prompt to track "longer but not better" patterns.
+        
+        Args:
+            prompt: The prompt to analyze
+            score: The performance score of this prompt
+            iteration: Current iteration number
+        """
+        metrics = self.compute_complexity_metrics(prompt)
+        
+        # Log with clear formatting
+        logger.info(f"Prompt Complexity (Iteration {iteration}):")
+        logger.info(f"  - Length: {metrics['char_length']} chars, {metrics['word_count']} words")
+        logger.info(f"  - Instructions: {metrics['instruction_count']} detected")
+        logger.info(f"  - Structure: numbered_steps={metrics['has_numbered_steps']}, bullets={metrics['has_bullet_points']}")
+        logger.info(f"  - Complexity Score: {metrics['complexity_score']:.3f}")
+        logger.info(f"  - Performance Score: {score:.3f}")
+        
+        # Warning if prompt is getting longer without proportional score improvement
+        if metrics['char_length'] > 500 and score < 0.5:
+            logger.warning(f"⚠️ Long prompt ({metrics['char_length']} chars) but low score ({score:.3f}) - "
+                          "consider simplifying the approach")
+        
+        return metrics
     
     def generate_metric_prompt(self) -> str:
         """Generate prompt for metric definition based on task."""

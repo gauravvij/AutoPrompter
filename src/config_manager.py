@@ -75,6 +75,9 @@ class ExperimentConfig:
     convergence_threshold: float = 0.95
     min_improvement: float = 0.01
     batch_size: int = 5
+    parallel_enabled: bool = False
+    parallel_workers: int = 3
+    parallel_candidates: int = 3
 
 
 @dataclass

@@ -9,6 +9,9 @@ import time
 import logging
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import asdict
+from scipy import stats
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
 
 from config_manager import Config, LLMConfig, LocalLLMConfig
 from llm_client import LLMClient
@@ -18,6 +21,7 @@ from experiment_ledger import ExperimentLedger, ExperimentRecord as Experiment
 from metrics import MetricsEvaluator, MetricDefinition
 from context_manager import ContextManager
 from prompt_optimizer import PromptOptimizer
+from robustness_tester import RobustnessTester, RobustnessResult
 
 # Configure logging
 logging.basicConfig(
@@ -34,9 +38,16 @@ logger = logging.getLogger(__name__)
 class PromptOptimizationSystem:
     """Main system for autonomous prompt optimization."""
     
-    def __init__(self, config: Config):
-        """Initialize the optimization system."""
+    def __init__(self, config: Config, progress_callback=None):
+        """Initialize the optimization system.
+        
+        Args:
+            config: Configuration object
+            progress_callback: Optional callback function(iteration, best_score, best_prompt, current_score)
+                              called after each iteration to report progress.
+        """
         self.config = config
+        self.progress_callback = progress_callback
         
         # Initialize components based on backend type
         if isinstance(config.optimizer_llm, LocalLLMConfig):
@@ -91,6 +102,22 @@ class PromptOptimizationSystem:
         self.best_score = 0.0
         self.iteration = 0
         self.dataset: List[DatasetEntry] = []
+        
+        # Statistical tracking for significance testing
+        self.best_scores_history: List[float] = []
+        self.baseline_established = False
+        
+        # Parallel execution settings
+        self.parallel_enabled = getattr(config.experiment, 'parallel_enabled', False)
+        self.parallel_workers = getattr(config.experiment, 'parallel_workers', 3)
+        self.parallel_candidates = getattr(config.experiment, 'parallel_candidates', 3)
+        self._executor = None
+        self._lock = threading.Lock()
+        
+        # Robustness testing
+        robustness_config = getattr(config, 'robustness', None)
+        self.robustness_tester = RobustnessTester(robustness_config)
+        self.robustness_enabled = robustness_config.get('enabled', False) if robustness_config else False
         
         # Create results directory
         os.makedirs(config.storage.results_dir, exist_ok=True)
@@ -197,6 +224,172 @@ class PromptOptimizationSystem:
         
         return experiment
     
+    def run_experiment_parallel(self, prompt: str, 
+                                 test_entries: List[DatasetEntry],
+                                 worker_id: int = 0) -> Experiment:
+        """Run a single experiment with the given prompt (thread-safe version for parallel execution)."""
+        with self._lock:
+            iteration = self.iteration + worker_id
+        
+        logger.info(f"[Worker {worker_id}] Running experiment with prompt (iteration {iteration})")
+        
+        # Run target LLM on all test inputs
+        inputs = [entry.input for entry in test_entries]
+        expected_outputs = [entry.expected_output for entry in test_entries]
+        
+        logger.info(f"[Worker {worker_id}] Testing on {len(inputs)} inputs...")
+        
+        # Query target LLM
+        actual_outputs = []
+        for inp in inputs:
+            full_prompt = f"{prompt}\n\nInput: {inp}\n\nOutput:"
+            response = self.target_llm.query(full_prompt)
+            
+            if response.success and response.content:
+                actual_outputs.append(response.content.strip())
+            else:
+                error_msg = response.error if response.error else "Empty or invalid response"
+                logger.error(f"[Worker {worker_id}] Target LLM query failed: {error_msg}")
+                actual_outputs.append("")
+        
+        # Evaluate results
+        eval_results = self.metrics_evaluator.evaluate_batch(
+            actual_outputs, expected_outputs
+        )
+        
+        # Create experiment record
+        experiment = Experiment(
+            iteration=iteration,
+            prompt=prompt,
+            inputs=inputs,
+            expected_outputs=expected_outputs,
+            actual_outputs=actual_outputs,
+            metric_scores=eval_results['scores'],
+            mean_score=eval_results['mean'],
+            timestamp=time.time()
+        )
+        
+        logger.info(f"[Worker {worker_id}] Experiment completed: mean_score={eval_results['mean']:.3f}")
+        
+        return experiment
+    
+    def evaluate_candidates_parallel(self, candidates: List[str], 
+                                     test_entries: List[DatasetEntry]) -> List[Tuple[str, Experiment]]:
+        """Evaluate multiple prompt candidates in parallel using ThreadPoolExecutor.
+        
+        Args:
+            candidates: List of prompt candidates to evaluate
+            test_entries: Dataset entries to test on
+            
+        Returns:
+            List of (prompt, experiment) tuples with results
+        """
+        if not self.parallel_enabled or len(candidates) == 1:
+            # Sequential fallback
+            results = []
+            for i, prompt in enumerate(candidates):
+                experiment = self.run_experiment_parallel(prompt, test_entries, i)
+                results.append((prompt, experiment))
+            return results
+        
+        # Parallel execution
+        logger.info(f"Evaluating {len(candidates)} candidates in parallel with {self.parallel_workers} workers...")
+        results = []
+        
+        with ThreadPoolExecutor(max_workers=min(self.parallel_workers, len(candidates))) as executor:
+            # Submit all tasks
+            future_to_prompt = {
+                executor.submit(self.run_experiment_parallel, prompt, test_entries, i): prompt 
+                for i, prompt in enumerate(candidates)
+            }
+            
+            # Collect results as they complete
+            for future in as_completed(future_to_prompt):
+                prompt = future_to_prompt[future]
+                try:
+                    experiment = future.result()
+                    results.append((prompt, experiment))
+                except Exception as e:
+                    logger.error(f"Parallel experiment failed for prompt: {e}")
+                    # Create a failed experiment record
+                    failed_experiment = Experiment(
+                        iteration=-1,
+                        prompt=prompt,
+                        inputs=[],
+                        expected_outputs=[],
+                        actual_outputs=[],
+                        metric_scores=[0.0],
+                        mean_score=0.0,
+                        timestamp=time.time()
+                    )
+                    results.append((prompt, failed_experiment))
+        
+        logger.info(f"Parallel evaluation complete: {len(results)} candidates evaluated")
+        return results
+    
+    def run_experiment_with_robustness(self, prompt: str,
+                                        test_entries: List[DatasetEntry]) -> Tuple[Experiment, Optional[RobustnessResult]]:
+        """Run experiment with robustness testing on input variants.
+        
+        Args:
+            prompt: Prompt to test
+            test_entries: Dataset entries to test
+            
+        Returns:
+            Tuple of (experiment, robustness_result)
+        """
+        if not self.robustness_enabled:
+            # Standard experiment without robustness
+            experiment = self.run_experiment(prompt, test_entries)
+            return experiment, None
+        
+        logger.info(f"Running experiment with robustness testing...")
+        
+        # Generate variants for each test entry
+        all_variants = []
+        variant_mapping = []  # Maps variant index to original entry index
+        
+        for entry_idx, entry in enumerate(test_entries):
+            variants = self.robustness_tester.generate_variants(entry)
+            for variant in variants:
+                all_variants.append(variant)
+                variant_mapping.append(entry_idx)
+        
+        logger.info(f"Generated {len(all_variants)} total variants from {len(test_entries)} entries")
+        
+        # Run experiment on all variants
+        experiment = self.run_experiment(prompt, all_variants)
+        
+        # Compute robustness scores per original entry
+        original_scores = []
+        variant_scores_per_entry = [[] for _ in test_entries]
+        
+        for i, score in enumerate(experiment.metric_scores):
+            orig_idx = variant_mapping[i]
+            if i == orig_idx or (i > 0 and variant_mapping[i-1] != orig_idx):
+                # This is the original entry
+                original_scores.append(score)
+            else:
+                # This is a variant
+                variant_scores_per_entry[orig_idx].append(score)
+        
+        # Compute overall robustness result
+        if original_scores and variant_scores_per_entry:
+            avg_original = sum(original_scores) / len(original_scores)
+            all_variant_scores = [s for scores in variant_scores_per_entry for s in scores]
+            
+            robustness_result = self.robustness_tester.compute_robustness_score(
+                avg_original, all_variant_scores
+            )
+            
+            logger.info(f"Robustness score: {robustness_result.robustness_score:.3f} "
+                       f"(variance: {robustness_result.score_variance:.3f}, "
+                       f"passed: {robustness_result.passed})")
+            
+            return experiment, robustness_result
+        
+        return experiment, None
+    
     def check_convergence(self, current_score: float, 
                           previous_score: float) -> bool:
         """Check if optimization has converged."""
@@ -229,6 +422,100 @@ class PromptOptimizationSystem:
             return False
         
         return False
+    
+    def _is_significant_improvement(self, current_scores: List[float], 
+                                     best_scores: List[float],
+                                     current_mean: float,
+                                     best_mean: float,
+                                     alpha: float = 0.05) -> bool:
+        """Check if score improvement is statistically significant.
+        
+        Uses t-test to compare current scores against best scores.
+        Falls back to bootstrap test if t-test assumptions are violated.
+        
+        Args:
+            current_scores: List of scores from current experiment
+            best_scores: List of scores from best experiment
+            current_mean: Mean of current scores
+            best_mean: Mean of best scores
+            alpha: Significance level (default 0.05)
+        
+        Returns:
+            True if improvement is statistically significant
+        """
+        # Need at least 3 samples for meaningful test
+        if len(current_scores) < 3 or len(best_scores) < 3:
+            # Not enough data, use simple threshold
+            return current_mean > best_mean + 0.01
+        
+        try:
+            # Perform two-sample t-test (unequal variances - Welch's t-test)
+            t_stat, p_value = stats.ttest_ind(current_scores, best_scores, equal_var=False)
+            
+            # For improvement to be significant:
+            # 1. Current mean must be higher
+            # 2. p-value must be below alpha (significant difference)
+            is_significant = (current_mean > best_mean) and (p_value < alpha)
+            
+            if is_significant:
+                logger.debug(f"Statistical significance confirmed: t={t_stat:.3f}, p={p_value:.4f}")
+            else:
+                logger.debug(f"Not significant: t={t_stat:.3f}, p={p_value:.4f}, "
+                           f"current={current_mean:.3f}, best={best_mean:.3f}")
+            
+            return is_significant
+            
+        except Exception as e:
+            logger.warning(f"T-test failed: {e}, using bootstrap fallback")
+            return self._bootstrap_significance_test(current_scores, best_scores, current_mean, best_mean, alpha)
+    
+    def _bootstrap_significance_test(self, current_scores: List[float],
+                                        best_scores: List[float],
+                                        current_mean: float,
+                                        best_mean: float,
+                                        alpha: float = 0.05,
+                                        n_bootstrap: int = 1000) -> bool:
+        """Bootstrap-based significance test as fallback.
+        
+        Args:
+            current_scores: Current experiment scores
+            best_scores: Best experiment scores
+            current_mean: Mean of current scores
+            best_mean: Mean of best scores
+            alpha: Significance level
+            n_bootstrap: Number of bootstrap samples
+        
+        Returns:
+            True if improvement is statistically significant
+        """
+        import numpy as np
+        
+        # Calculate observed difference
+        observed_diff = current_mean - best_mean
+        
+        # Combine scores
+        combined = current_scores + best_scores
+        n_current = len(current_scores)
+        n_best = len(best_scores)
+        
+        # Bootstrap: resample and calculate difference
+        bootstrap_diffs = []
+        for _ in range(n_bootstrap):
+            # Resample with replacement
+            resampled = np.random.choice(combined, size=len(combined), replace=True)
+            resampled_current = resampled[:n_current]
+            resampled_best = resampled[n_current:]
+            bootstrap_diffs.append(np.mean(resampled_current) - np.mean(resampled_best))
+        
+        # Calculate p-value: proportion of bootstrap diffs >= observed
+        bootstrap_diffs = np.array(bootstrap_diffs)
+        p_value = np.mean(bootstrap_diffs >= observed_diff)
+        
+        is_significant = (observed_diff > 0) and (p_value < alpha)
+        
+        logger.debug(f"Bootstrap test: observed_diff={observed_diff:.4f}, p={p_value:.4f}")
+        
+        return is_significant
     
     def _build_feedback_summary(self, experiment) -> str:
         """Build detailed feedback summary from experiment results."""
@@ -387,7 +674,53 @@ class PromptOptimizationSystem:
         # This ensures each experiment tests on all test cases
         logger.info(f"Using full dataset of {len(self.dataset)} test cases for each experiment")
         
-        previous_score = 0.0
+        # === BASELINE EVALUATION ===
+        # Evaluate the initial/baseline prompt before starting optimization loop
+        logger.info(f"\n{'='*60}")
+        logger.info("BASELINE EVALUATION - Testing initial prompt")
+        logger.info(f"{'='*60}")
+        self.iteration = 0  # Baseline is iteration 0
+        baseline_experiment = self.run_experiment(self.best_prompt, self.dataset)
+        self.best_score = baseline_experiment.mean_score
+        self.baseline_established = True
+        self.best_scores_history = baseline_experiment.metric_scores.copy()
+        
+        # Add baseline to ledger
+        self.ledger.add_experiment(baseline_experiment)
+        
+        # Add to context manager
+        baseline_exp_dict = {
+            'iteration': 0,
+            'prompt': baseline_experiment.prompt,
+            'metric_score': baseline_experiment.mean_score,
+            'improvement': 0.0,
+            'is_baseline': True,
+            'sample_results': [
+                {
+                    'input': inp,
+                    'expected': exp,
+                    'actual': act,
+                    'score': score
+                }
+                for inp, exp, act, score in zip(
+                    baseline_experiment.inputs[:3],
+                    baseline_experiment.expected_outputs[:3],
+                    baseline_experiment.actual_outputs[:3],
+                    baseline_experiment.metric_scores[:3]
+                )
+            ]
+        }
+        self.context_manager.add_experiment(baseline_exp_dict)
+        
+        logger.info(f"*** BASELINE ESTABLISHED *** Score: {self.best_score:.3f}")
+        logger.info(f"{'='*60}\n")
+        
+        # Notify progress callback of baseline
+        if self.progress_callback:
+            self.progress_callback(0, self.best_score, self.best_prompt, self.best_score)
+        
+        # Start optimization from baseline
+        previous_score = self.best_score
         
         # max_iterations is now the TOTAL number of experiments to run
         # Each iteration = one prompt tested on full dataset
@@ -424,16 +757,30 @@ class PromptOptimizationSystem:
             # Add to ledger
             self.ledger.add_experiment(experiment)
             
-            # Update best if improved (with margin to avoid noise)
+            # Update best if improved (with statistical significance testing)
             current_score = experiment.mean_score
+            current_scores = experiment.metric_scores
+            
+            # Check if improvement is statistically significant
+            is_significant = self._is_significant_improvement(
+                current_scores, self.best_scores_history, current_score, self.best_score
+            )
+            
             score_margin = 0.001  # Small margin to avoid floating point noise
-            if current_score > (self.best_score + score_margin):
+            if current_score > (self.best_score + score_margin) and is_significant:
                 improvement = current_score - self.best_score
                 self.best_score = current_score
                 self.best_prompt = self.current_prompt
-                logger.info(f"*** NEW BEST *** Score: {self.best_score:.3f} (+{improvement:.3f})")
+                self.best_scores_history = current_scores.copy()
+                logger.info(f"*** NEW BEST *** Score: {self.best_score:.3f} (+{improvement:.3f}) [statistically significant]")
+            elif current_score > (self.best_score + score_margin):
+                logger.info(f"Score: {current_score:.3f} (best: {self.best_score:.3f}) - improvement NOT statistically significant")
             else:
                 logger.info(f"Score: {current_score:.3f} (best: {self.best_score:.3f})")
+            
+            # Notify progress callback
+            if self.progress_callback:
+                self.progress_callback(self.iteration, self.best_score, self.best_prompt, current_score)
             
             # Add to context manager
             exp_dict = {

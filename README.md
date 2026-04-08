@@ -145,11 +145,31 @@ The system will probe both Ollama and llama.cpp endpoints to determine which is 
 
 ## Usage
 
+### Command Line Interface
+
 Run the optimization process using the main entry point:
 
 ```bash
 python main.py --config config.yaml
 ```
+
+### Web UI (New!)
+
+AutoPrompter now includes a web-based dashboard for real-time monitoring and control:
+
+```bash
+python web_ui.py
+```
+
+Then open http://localhost:5000 in your browser.
+
+**Web UI Features:**
+- **Real-time Dashboard**: Live updates of optimization progress with score history charts
+- **Configuration Builder**: Interactive form to create and edit optimization configs
+- **Checkpoint Management**: Save, load, and manage optimization checkpoints
+- **Prompt Diff Visualization**: Compare prompt iterations side-by-side with highlighted changes
+- **Export/Import**: Save complete optimization runs to JSON and reload them later
+- **Log Streaming**: Real-time log output via Server-Sent Events
 
 ### Specific Task Examples
 
@@ -189,6 +209,28 @@ You can override configuration values directly from the CLI:
 ```bash
 python main.py --config config.yaml --max-iterations 50 --override experiment.batch_size=10
 ```
+
+## Recent Enhancements
+
+### Robustness & Stability Improvements
+- **Baseline Evaluation Fix**: `best_score` now initializes from actual baseline prompt evaluation instead of 0.0
+- **Statistical Significance Testing**: Welch's t-test with bootstrap fallback prevents noise-driven prompt switches (p<0.05 threshold)
+- **Stagnation Detection**: Increased threshold from 2 to 5 iterations before triggering diversification
+- **Semantic Duplicate Detection**: Embedding-based similarity check (SentenceTransformer, 0.95 threshold) prevents re-evaluating near-identical prompts
+- **Prompt Complexity Tracking**: Monitors length, word count, and instruction count to detect "longer but not better" patterns
+
+### Parallel Execution & Robustness Testing
+- **Parallel Experiment Executor**: ThreadPoolExecutor for simultaneous candidate evaluation (max_workers=3)
+- **Robustness Testing Framework**: Adversarial input generation (typos, ambiguity, format variations) with consistency scoring
+
+### Web UI (New)
+- Flask-based web interface with REST API and Server-Sent Events
+- Real-time dashboard with Chart.js visualization
+- Checkpoint management and configuration builder
+- Prompt diff visualization with syntax highlighting
+- Export/import functionality for saving optimization runs
+
+See [CHANGELOG.md](CHANGELOG.md) for detailed version history.
 
 ## License
 

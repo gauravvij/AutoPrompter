@@ -1,0 +1,38 @@
+context:
+  compression_threshold: 50
+  max_experiments_in_context: 20
+experiment:
+  batch_size: 5
+  convergence_threshold: 0.95
+  max_iterations: 20
+  min_improvement: 0.01
+  parallel_candidates: 3
+  parallel_enabled: false
+  parallel_workers: 3
+metric:
+  target_score: 0.95
+  type: accuracy
+optimizer_llm:
+  api_base: https://openrouter.ai/api/v1
+  api_key: null
+  backend: openrouter
+  max_tokens: 4096
+  model: openai/gpt-5.4-nano
+  temperature: 0.3
+storage:
+  checkpoint_interval: 10
+  dataset_file: generated_dataset.json
+  ledger_file: experiment_ledger.json
+  results_dir: results
+target_llm:
+  api_base: https://openrouter.ai/api/v1
+  api_key: null
+  backend: openrouter
+  max_tokens: 8192
+  model: openai/gpt-5.4-nano
+  temperature: 0.4
+task:
+  description: AI agent to build websites
+  initial_prompt: 'You are an ai agent for website building. When you are given a
+    task, you write code to accomplish it without any errors. '
+  name: web_build_agent

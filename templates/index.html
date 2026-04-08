@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AutoPrompter - Visual Prompt Optimization</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <h1>🎯 AutoPrompter</h1>
+            <p>Visual Prompt Optimization System</p>
+            <div class="status-indicator" id="statusIndicator">
+                <span class="status-dot" id="statusDot"></span>
+                <span id="statusText">Idle</span>
+            </div>
+        </header>
+
+        <!-- Navigation Tabs -->
+        <nav class="nav-tabs">
+            <button class="tab-btn active" data-tab="config">⚙️ Config Builder</button>
+            <button class="tab-btn" data-tab="dashboard">📊 Dashboard</button>
+            <button class="tab-btn" data-tab="checkpoints">💾 Checkpoints</button>
+            <button class="tab-btn" data-tab="results">📈 Results</button>
+        </nav>
+
+        <!-- Config Builder Tab -->
+        <section class="tab-content active" id="config">
+            <div class="panel">
+                <h2>Configuration Builder</h2>
+                <p class="panel-desc">Configure your prompt optimization task</p>
+                
+                <form id="configForm">
+                    <!-- Task Section -->
+                    <div class="form-section">
+                        <h3>📝 Task Configuration</h3>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="taskName">Task Name</label>
+                                <input type="text" id="taskName" name="task.name" value="text_classification" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="taskDescription">Description</label>
+                                <input type="text" id="taskDescription" name="task.description" value="Classify text sentiment" required>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="initialPrompt">Initial Prompt</label>
+                            <textarea id="initialPrompt" name="task.initial_prompt" rows="3" required>Analyze the sentiment of the following text and respond with only "positive" or "negative".</textarea>
+                        </div>
+                    </div>
+
+                    <!-- LLM Configuration -->
+                    <div class="form-section">
+                        <h3>🤖 LLM Configuration</h3>
+                        <div class="llm-tabs">
+                            <button type="button" class="llm-tab-btn active" data-llm="optimizer">Optimizer LLM</button>
+                            <button type="button" class="llm-tab-btn" data-llm="target">Target LLM</button>
+                        </div>
+                        
+                        <div class="llm-content active" id="optimizer-llm">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="optBackend">Backend</label>
+                                    <select id="optBackend" name="optimizer_llm.backend" onchange="updateModelOptions('optimizer')">
+                                        <option value="openrouter" selected>OpenRouter (Cloud)</option>
+                                        <option value="ollama">Ollama (Local)</option>
+                                        <option value="llama_cpp">Llama.cpp (Local)</option>
+                                    </select>
+                                    <small class="help-text" id="optBackendHelp">Uses OpenRouter API with 25+ cloud models</small>
+                                </div>
+                                <div class="form-group" id="optModelGroup">
+                                    <label for="optModel">Model</label>
+                                    <select id="optModel" name="optimizer_llm.model" class="openrouter-models">
+                                        <!-- Anthropic Claude 4 Series (Latest) -->
+                                        <option value="anthropic/claude-opus-4.6" selected>Claude 4.6 Opus</option>
+                                        <option value="anthropic/claude-sonnet-4.5">Claude 4.5 Sonnet</option>
+                                        <!-- Anthropic Claude 3 Series -->
+                                        <option value="anthropic/claude-3.5-sonnet">Claude 3.5 Sonnet</option>
+                                        <option value="anthropic/claude-3-opus">Claude 3 Opus</option>
+                                        <option value="anthropic/claude-3-haiku">Claude 3 Haiku</option>
+                                        <!-- OpenAI GPT 5 Series (Latest) -->
+                                        <option value="openai/gpt-5.4">GPT 5.4</option>
+                                        <option value="openai/gpt-5.4-nano">GPT 5.4 Nano</option>
+                                        <option value="openai/gpt-5.4-pro">GPT 5.4 Pro</option>
+                                        <!-- OpenAI GPT 4 Series -->
+                                        <option value="openai/gpt-4o">GPT-4o</option>
+                                        <option value="openai/gpt-4o-mini">GPT-4o Mini</option>
+                                        <option value="openai/o3-mini">o3 Mini</option>
+                                        <!-- Google Gemini 3 Series (Latest) -->
+                                        <option value="google/gemini-3.1-pro-preview">Gemini 3.1 Pro Preview</option>
+                                        <!-- Google Gemini 2 Series -->
+                                        <option value="google/gemini-2.0-flash-001">Gemini 2.0 Flash</option>
+                                        <option value="google/gemini-1.5-pro">Gemini 1.5 Pro</option>
+                                        <!-- Meta Llama 4 Series (Latest) -->
+                                        <option value="meta-llama/llama-4-maverick">Llama 4 Maverick</option>
+                                        <!-- Meta Llama 3 Series -->
+                                        <option value="meta-llama/llama-3.3-70b-instruct">Llama 3.3 70B</option>
+                                        <option value="meta-llama/llama-3.1-405b-instruct">Llama 3.1 405B</option>
+                                        <!-- xAI Grok 4 Series (Latest) -->
+                                        <option value="x-ai/grok-4.20">Grok 4.20</option>
+                                        <option value="x-ai/grok-4.10">Grok 4.10</option>
+                                        <option value="x-ai/grok-4.1">Grok 4.1</option>
+                                        <!-- xAI Grok 2 Series -->
+                                        <option value="x-ai/grok-2">Grok 2</option>
+                                        <!-- Google Gemma 4 Series (Latest) -->
+                                        <option value="google/gemma-4-31b-it">Gemma 4 31B</option>
+                                        <option value="google/gemma-4-26b-a4b">Gemma 4 26B A4B</option>
+                                        <!-- Google Gemma 3 Series -->
+                                        <option value="google/gemma-3-27b-it">Gemma 3 27B</option>
+                                        <!-- Alibaba Qwen -->
+                                        <option value="qwen/qwen-3.6-plus">Qwen 3.6 Plus</option>
+                                        <option value="qwen/qwen-2.5-72b-instruct">Qwen 2.5 72B</option>
+                                        <!-- DeepSeek -->
+                                        <option value="deepseek/deepseek-v3">DeepSeek V3</option>
+                                        <option value="deepseek/deepseek-r1">DeepSeek R1</option>
+                                        <!-- Mistral -->
+                                        <option value="mistral/mistral-large">Mistral Large</option>
+                                    </select>
+                                    <input type="text" id="optModelInput" name="optimizer_llm.model" class="local-model-input" style="display:none;" placeholder="Enter model name (e.g., llama3.1, mistral)" value="llama3.1">
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="optTemp">Temperature</label>
+                                    <input type="number" id="optTemp" name="optimizer_llm.temperature" value="0.7" min="0" max="2" step="0.1">
+                                </div>
+                                <div class="form-group">
+                                    <label for="optTokens">Max Tokens</label>
+                                    <input type="number" id="optTokens" name="optimizer_llm.max_tokens" value="4096" min="100" max="8192">
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="llm-content" id="target-llm">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="targetBackend">Backend</label>
+                                    <select id="targetBackend" name="target_llm.backend" onchange="updateModelOptions('target')">
+                                        <option value="openrouter" selected>OpenRouter (Cloud)</option>
+                                        <option value="ollama">Ollama (Local)</option>
+                                        <option value="llama_cpp">Llama.cpp (Local)</option>
+                                    </select>
+                                    <small class="help-text" id="targetBackendHelp">Uses OpenRouter API with 25+ cloud models</small>
+                                </div>
+                                <div class="form-group" id="targetModelGroup">
+                                    <label for="targetModel">Model</label>
+                                    <select id="targetModel" name="target_llm.model" class="openrouter-models">
+                                        <!-- Anthropic Claude 4 Series (Latest) -->
+                                        <option value="anthropic/claude-opus-4.6" selected>Claude 4.6 Opus</option>
+                                        <option value="anthropic/claude-sonnet-4.5">Claude 4.5 Sonnet</option>
+                                        <!-- Anthropic Claude 3 Series -->
+                                        <option value="anthropic/claude-3.5-sonnet">Claude 3.5 Sonnet</option>
+                                        <option value="anthropic/claude-3-opus">Claude 3 Opus</option>
+                                        <option value="anthropic/claude-3-haiku">Claude 3 Haiku</option>
+                                        <!-- OpenAI GPT 5 Series (Latest) -->
+                                        <option value="openai/gpt-5.4">GPT 5.4</option>
+                                        <option value="openai/gpt-5.4-nano">GPT 5.4 Nano</option>
+                                        <option value="openai/gpt-5.4-pro">GPT 5.4 Pro</option>
+                                        <!-- OpenAI GPT 4 Series -->
+                                        <option value="openai/gpt-4o">GPT-4o</option>
+                                        <option value="openai/gpt-4o-mini">GPT-4o Mini</option>
+                                        <option value="openai/o3-mini">o3 Mini</option>
+                                        <!-- Google Gemini 3 Series (Latest) -->
+                                        <option value="google/gemini-3.1-pro-preview">Gemini 3.1 Pro Preview</option>
+                                        <!-- Google Gemini 2 Series -->
+                                        <option value="google/gemini-2.0-flash-001">Gemini 2.0 Flash</option>
+                                        <option value="google/gemini-1.5-pro">Gemini 1.5 Pro</option>
+                                        <!-- Meta Llama 4 Series (Latest) -->
+                                        <option value="meta-llama/llama-4-maverick">Llama 4 Maverick</option>
+                                        <!-- Meta Llama 3 Series -->
+                                        <option value="meta-llama/llama-3.3-70b-instruct">Llama 3.3 70B</option>
+                                        <option value="meta-llama/llama-3.1-405b-instruct">Llama 3.1 405B</option>
+                                        <!-- xAI Grok 4 Series (Latest) -->
+                                        <option value="x-ai/grok-4.20">Grok 4.20</option>
+                                        <option value="x-ai/grok-4.10">Grok 4.10</option>
+                                        <option value="x-ai/grok-4.1">Grok 4.1</option>
+                                        <!-- xAI Grok 2 Series -->
+                                        <option value="x-ai/grok-2">Grok 2</option>
+                                        <!-- Google Gemma 4 Series (Latest) -->
+                                        <option value="google/gemma-4-31b-it">Gemma 4 31B</option>
+                                        <option value="google/gemma-4-26b-a4b">Gemma 4 26B A4B</option>
+                                        <!-- Google Gemma 3 Series -->
+                                        <option value="google/gemma-3-27b-it">Gemma 3 27B</option>
+                                        <!-- Alibaba Qwen -->
+                                        <option value="qwen/qwen-3.6-plus">Qwen 3.6 Plus</option>
+                                        <option value="qwen/qwen-2.5-72b-instruct">Qwen 2.5 72B</option>
+                                        <!-- DeepSeek -->
+                                        <option value="deepseek/deepseek-v3">DeepSeek V3</option>
+                                        <option value="deepseek/deepseek-r1">DeepSeek R1</option>
+                                        <!-- Mistral -->
+                                        <option value="mistral/mistral-large">Mistral Large</option>
+                                    </select>
+                                    <input type="text" id="targetModelInput" name="target_llm.model" class="local-model-input" style="display:none;" placeholder="Enter model name (e.g., llama3.1, mistral)" value="llama3.1">
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="targetTemp">Temperature</label>
+                                    <input type="number" id="targetTemp" name="target_llm.temperature" value="0.7" min="0" max="2" step="0.1">
+                                </div>
+                                <div class="form-group">
+                                    <label for="targetTokens">Max Tokens</label>
+                                    <input type="number" id="targetTokens" name="target_llm.max_tokens" value="4096" min="100" max="8192">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Experiment Settings -->
+                    <div class="form-section">
+                        <h3>⚙️ Experiment Settings</h3>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="maxIterations">Max Iterations</label>
+                                <input type="number" id="maxIterations" name="experiment.max_iterations" value="20" min="1" max="100">
+                            </div>
+                            <div class="form-group">
+                                <label for="targetScore">Target Score</label>
+                                <input type="number" id="targetScore" name="metric.target_score" value="0.95" min="0" max="1" step="0.01">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="metricType">Metric Type</label>
+                                <select id="metricType" name="metric.type">
+                                    <option value="accuracy" selected>Accuracy</option>
+                                    <option value="semantic_similarity">Semantic Similarity</option>
+                                    <option value="f1_score">F1 Score</option>
+                                    <option value="exact_match">Exact Match</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="batchSize">Batch Size</label>
+                                <input type="number" id="batchSize" name="experiment.batch_size" value="5" min="1" max="50">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Parallel Execution -->
+                    <div class="form-section">
+                        <h3>🚀 Parallel Execution</h3>
+                        <div class="form-row">
+                            <div class="form-group checkbox-group">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="parallelEnabled" name="experiment.parallel_enabled">
+                                    <span>Enable Parallel Execution</span>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="form-row parallel-options" id="parallelOptions">
+                            <div class="form-group">
+                                <label for="parallelWorkers">Workers</label>
+                                <input type="number" id="parallelWorkers" name="experiment.parallel_workers" value="3" min="2" max="10">
+                            </div>
+                            <div class="form-group">
+                                <label for="parallelCandidates">Candidates per Iteration</label>
+                                <input type="number" id="parallelCandidates" name="experiment.parallel_candidates" value="3" min="2" max="10">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Robustness Testing -->
+                    <div class="form-section">
+                        <h3>🛡️ Robustness Testing</h3>
+                        <div class="form-row">
+                            <div class="form-group checkbox-group">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="robustnessEnabled" name="robustness.enabled">
+                                    <span>Enable Robustness Testing</span>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="form-row robustness-options" id="robustnessOptions">
+                            <div class="form-group">
+                                <label for="numVariants">Variants per Input</label>
+                                <input type="number" id="numVariants" name="robustness.num_variants" value="3" min="1" max="10">
+                            </div>
+                            <div class="form-group">
+                                <label for="robustnessThreshold">Score Threshold</label>
+                                <input type="number" id="robustnessThreshold" name="robustness.score_threshold" value="0.9" min="0" max="1" step="0.01">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Storage Settings -->
+                    <div class="form-section">
+                        <h3>💾 Storage Settings</h3>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="resultsDir">Results Directory</label>
+                                <input type="text" id="resultsDir" name="storage.results_dir" value="results">
+                            </div>
+                            <div class="form-group">
+                                <label for="checkpointInterval">Checkpoint Interval</label>
+                                <input type="number" id="checkpointInterval" name="storage.checkpoint_interval" value="10" min="1" max="100">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Actions -->
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-secondary" id="loadConfigBtn">📂 Load Config</button>
+                        <button type="button" class="btn btn-secondary" id="saveConfigBtn">💾 Save Config</button>
+                        <button type="button" class="btn btn-secondary" id="importStateBtn">📥 Import State</button>
+                        <button type="button" class="btn btn-primary" id="startBtn">🚀 Start Optimization</button>
+                    </div>
+                </form>
+            </div>
+        </section>
+
+        <!-- Dashboard Tab -->
+        <section class="tab-content" id="dashboard">
+            <div class="dashboard-grid">
+                <!-- Stats Cards -->
+                <div class="stats-row">
+                    <div class="stat-card">
+                        <div class="stat-label">Iteration</div>
+                        <div class="stat-value" id="currentIteration">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Best Score</div>
+                        <div class="stat-value" id="bestScore">0.000</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Elapsed Time</div>
+                        <div class="stat-value" id="elapsedTime">00:00:00</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Status</div>
+                        <div class="stat-value" id="runStatus">Idle</div>
+                    </div>
+                </div>
+
+                <!-- Charts -->
+                <div class="chart-container">
+                    <h3>Score History</h3>
+                    <div class="chart-wrapper">
+                        <canvas id="scoreChart" width="800" height="300"></canvas>
+                    </div>
+                </div>
+
+                <!-- Best Prompt Display -->
+                <div class="prompt-display">
+                    <div class="prompt-header">
+                        <h3>🏆 Current Best Prompt</h3>
+                        <button class="btn btn-small btn-secondary" id="showDiffBtn">🔍 Show Changes</button>
+                    </div>
+                    <div class="prompt-box" id="bestPromptBox">
+                        <p class="placeholder">Start optimization to see the best prompt...</p>
+                    </div>
+                </div>
+
+                <!-- Live Logs -->
+                <div class="logs-container">
+                    <div class="logs-header">
+                        <h3>📜 Live Logs</h3>
+                        <button class="btn btn-small" id="clearLogsBtn">Clear</button>
+                    </div>
+                    <div class="logs-box" id="logsBox">
+                        <p class="placeholder">Logs will appear here when optimization starts...</p>
+                    </div>
+                </div>
+
+                <!-- Control Buttons -->
+                <div class="control-buttons">
+                    <button class="btn btn-danger" id="stopBtn" disabled>⏹️ Stop</button>
+                    <button class="btn btn-primary" id="refreshBtn">🔄 Refresh</button>
+                    <button class="btn btn-secondary" id="exportStateBtn">📤 Export State</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Checkpoints Tab -->
+        <section class="tab-content" id="checkpoints">
+            <div class="panel">
+                <h2>Checkpoint Manager</h2>
+                <p class="panel-desc">Load or resume from saved checkpoints</p>
+                
+                <div class="checkpoints-list" id="checkpointsList">
+                    <p class="placeholder">No checkpoints found. Run optimization to create checkpoints.</p>
+                </div>
+                
+                <div class="checkpoints-actions">
+                    <button class="btn btn-secondary" id="refreshCheckpointsBtn">🔄 Refresh List</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Results Tab -->
+        <section class="tab-content" id="results">
+            <div class="panel">
+                <h2>Final Results</h2>
+                <p class="panel-desc">View and export optimization results</p>
+                
+                <div class="results-content" id="resultsContent">
+                    <p class="placeholder">No results available yet. Complete an optimization to see results.</p>
+                </div>
+                
+                <div class="results-actions" id="resultsActions" style="display: none;">
+                    <button class="btn btn-secondary" id="exportJsonBtn">📄 Export JSON</button>
+                    <button class="btn btn-secondary" id="exportTxtBtn">📝 Export Text</button>
+                    <button class="btn btn-secondary" id="exportStateBtn">📤 Export Full State</button>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <!-- Diff Modal -->
+    <div class="modal" id="diffModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>🔍 Prompt Changes</h3>
+                <button class="modal-close" id="closeDiffBtn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="diffContent">
+                    <p class="placeholder">No changes to display</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
