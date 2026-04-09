@@ -77,13 +77,11 @@
                                     <select id="optModel" name="optimizer_llm.model" class="openrouter-models">
                                         <!-- Anthropic Claude 4 Series (Latest) -->
                                         <option value="anthropic/claude-opus-4.6" selected>Claude 4.6 Opus</option>
+                                        <option value="anthropic/claude-sonnet-4.6">Claude 4.6 Sonnet</option>
                                         <option value="anthropic/claude-sonnet-4.5">Claude 4.5 Sonnet</option>
-                                        <!-- Anthropic Claude 3 Series -->
-                                        <option value="anthropic/claude-3.5-sonnet">Claude 3.5 Sonnet</option>
-                                        <option value="anthropic/claude-3-opus">Claude 3 Opus</option>
-                                        <option value="anthropic/claude-3-haiku">Claude 3 Haiku</option>
                                         <!-- OpenAI GPT 5 Series (Latest) -->
                                         <option value="openai/gpt-5.4">GPT 5.4</option>
+                                        <option value="openai/gpt-5.4-mini">GPT 5.4 Mini</option>
                                         <option value="openai/gpt-5.4-nano">GPT 5.4 Nano</option>
                                         <option value="openai/gpt-5.4-pro">GPT 5.4 Pro</option>
                                         <!-- OpenAI GPT 4 Series -->
@@ -92,9 +90,9 @@
                                         <option value="openai/o3-mini">o3 Mini</option>
                                         <!-- Google Gemini 3 Series (Latest) -->
                                         <option value="google/gemini-3.1-pro-preview">Gemini 3.1 Pro Preview</option>
-                                        <!-- Google Gemini 2 Series -->
-                                        <option value="google/gemini-2.0-flash-001">Gemini 2.0 Flash</option>
-                                        <option value="google/gemini-1.5-pro">Gemini 1.5 Pro</option>
+                                        <option value="google/gemini-3-flash-preview">Gemini 3 Flash Preview</option>
+                                        <option value="google/gemini-3.1-flash-lite-preview">Gemini 3.1 Flash Lite Preview</option>
+
                                         <!-- Meta Llama 4 Series (Latest) -->
                                         <option value="meta-llama/llama-4-maverick">Llama 4 Maverick</option>
                                         <!-- Meta Llama 3 Series -->
@@ -104,8 +102,6 @@
                                         <option value="x-ai/grok-4.20">Grok 4.20</option>
                                         <option value="x-ai/grok-4.10">Grok 4.10</option>
                                         <option value="x-ai/grok-4.1">Grok 4.1</option>
-                                        <!-- xAI Grok 2 Series -->
-                                        <option value="x-ai/grok-2">Grok 2</option>
                                         <!-- Google Gemma 4 Series (Latest) -->
                                         <option value="google/gemma-4-31b-it">Gemma 4 31B</option>
                                         <option value="google/gemma-4-26b-a4b">Gemma 4 26B A4B</option>
@@ -113,7 +109,9 @@
                                         <option value="google/gemma-3-27b-it">Gemma 3 27B</option>
                                         <!-- Alibaba Qwen -->
                                         <option value="qwen/qwen-3.6-plus">Qwen 3.6 Plus</option>
-                                        <option value="qwen/qwen-2.5-72b-instruct">Qwen 2.5 72B</option>
+                                        <option value="qwen/qwen3.5-35b-a3b">Qwen 3.5 35B A3B</option>
+                                        <option value="qwen/qwen3.5-27b">Qwen 3.5 27B</option>
+                                        <option value="qwen/qwen3.5-9b">Qwen 3.5 9B</option>
                                         <!-- DeepSeek -->
                                         <option value="deepseek/deepseek-v3">DeepSeek V3</option>
                                         <option value="deepseek/deepseek-r1">DeepSeek R1</option>
@@ -151,13 +149,11 @@
                                     <select id="targetModel" name="target_llm.model" class="openrouter-models">
                                         <!-- Anthropic Claude 4 Series (Latest) -->
                                         <option value="anthropic/claude-opus-4.6" selected>Claude 4.6 Opus</option>
+                                        <option value="anthropic/claude-sonnet-4.6">Claude 4.6 Sonnet</option>
                                         <option value="anthropic/claude-sonnet-4.5">Claude 4.5 Sonnet</option>
-                                        <!-- Anthropic Claude 3 Series -->
-                                        <option value="anthropic/claude-3.5-sonnet">Claude 3.5 Sonnet</option>
-                                        <option value="anthropic/claude-3-opus">Claude 3 Opus</option>
-                                        <option value="anthropic/claude-3-haiku">Claude 3 Haiku</option>
                                         <!-- OpenAI GPT 5 Series (Latest) -->
                                         <option value="openai/gpt-5.4">GPT 5.4</option>
+                                        <option value="openai/gpt-5.4-mini">GPT 5.4 Mini</option>
                                         <option value="openai/gpt-5.4-nano">GPT 5.4 Nano</option>
                                         <option value="openai/gpt-5.4-pro">GPT 5.4 Pro</option>
                                         <!-- OpenAI GPT 4 Series -->
@@ -166,9 +162,9 @@
                                         <option value="openai/o3-mini">o3 Mini</option>
                                         <!-- Google Gemini 3 Series (Latest) -->
                                         <option value="google/gemini-3.1-pro-preview">Gemini 3.1 Pro Preview</option>
-                                        <!-- Google Gemini 2 Series -->
-                                        <option value="google/gemini-2.0-flash-001">Gemini 2.0 Flash</option>
-                                        <option value="google/gemini-1.5-pro">Gemini 1.5 Pro</option>
+                                        <option value="google/gemini-3-flash-preview">Gemini 3 Flash Preview</option>
+                                        <option value="google/gemini-3.1-flash-lite-preview">Gemini 3.1 Flash Lite Preview</option>
+
                                         <!-- Meta Llama 4 Series (Latest) -->
                                         <option value="meta-llama/llama-4-maverick">Llama 4 Maverick</option>
                                         <!-- Meta Llama 3 Series -->
@@ -178,8 +174,6 @@
                                         <option value="x-ai/grok-4.20">Grok 4.20</option>
                                         <option value="x-ai/grok-4.10">Grok 4.10</option>
                                         <option value="x-ai/grok-4.1">Grok 4.1</option>
-                                        <!-- xAI Grok 2 Series -->
-                                        <option value="x-ai/grok-2">Grok 2</option>
                                         <!-- Google Gemma 4 Series (Latest) -->
                                         <option value="google/gemma-4-31b-it">Gemma 4 31B</option>
                                         <option value="google/gemma-4-26b-a4b">Gemma 4 26B A4B</option>
@@ -187,12 +181,12 @@
                                         <option value="google/gemma-3-27b-it">Gemma 3 27B</option>
                                         <!-- Alibaba Qwen -->
                                         <option value="qwen/qwen-3.6-plus">Qwen 3.6 Plus</option>
-                                        <option value="qwen/qwen-2.5-72b-instruct">Qwen 2.5 72B</option>
+                                        <option value="qwen/qwen3.5-35b-a3b">Qwen 3.5 35B A3B</option>
+                                        <option value="qwen/qwen3.5-27b">Qwen 3.5 27B</option>
+                                        <option value="qwen/qwen3.5-9b">Qwen 3.5 9B</option>
                                         <!-- DeepSeek -->
                                         <option value="deepseek/deepseek-v3">DeepSeek V3</option>
                                         <option value="deepseek/deepseek-r1">DeepSeek R1</option>
-                                        <!-- Mistral -->
-                                        <option value="mistral/mistral-large">Mistral Large</option>
                                     </select>
                                     <input type="text" id="targetModelInput" name="target_llm.model" class="local-model-input" style="display:none;" placeholder="Enter model name (e.g., llama3.1, mistral)" value="llama3.1">
                                 </div>

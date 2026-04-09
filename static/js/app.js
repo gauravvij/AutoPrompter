@@ -95,7 +95,8 @@ function init() {
     initChart();
     loadConfig();
     startStatusStream();
-    loadCheckpoints();
+    // loadCheckpoints is called via debounce after init completes
+    setTimeout(() => loadCheckpoints(), 100);
     
     // Cleanup on page unload
     window.addEventListener('beforeunload', cleanupEventSources);
@@ -166,10 +167,8 @@ function handleVisibilityChange() {
         cleanupEventSources();
     } else {
         // Page visible - reconnect
-        if (isRunning) {
-            startLogStream();
-            startStatusStream();
-        }
+        startStatusStream();
+        // Log stream will be started by status stream if running
     }
 }
 
@@ -806,6 +805,11 @@ function startStatusStream() {
                 const data = JSON.parse(event.data);
                 if (data.type !== 'heartbeat') {
                     updateDashboard(data);
+                    
+                    // If running, ensure log stream is active
+                    if (data.is_running && !eventSource) {
+                        startLogStream();
+                    }
                 }
             } catch (error) {
                 console.error('Failed to parse status update:', error);
@@ -840,8 +844,22 @@ function startStatusPolling() {
     if (statusPollInterval) return; // Already polling
     
     console.log('Starting status polling');
-    statusPollInterval = setInterval(() => {
-        refreshStatus();
+    statusPollInterval = setInterval(async () => {
+        try {
+            const response = await fetch('/api/status');
+            const data = await response.json();
+            
+            if (data.status === 'success') {
+                updateDashboard(data.data);
+                
+                // If running, ensure log stream is active
+                if (data.data.is_running && !eventSource) {
+                    startLogStream();
+                }
+            }
+        } catch (error) {
+            console.error('Status poll error:', error);
+        }
     }, STATUS_UPDATE_INTERVAL);
     
     // Initial poll
@@ -853,6 +871,7 @@ function startLogStream() {
     // Close existing connection
     if (eventSource) {
         eventSource.close();
+        eventSource = null;
     }
     
     eventSource = new EventSource('/api/logs/stream');
@@ -870,9 +889,15 @@ function startLogStream() {
     
     eventSource.onerror = (error) => {
         console.error('Log SSE error:', error);
-        // Don't auto-reconnect - let visibility handler manage it
-        eventSource.close();
-        eventSource = null;
+        // Reconnect after a delay if still running
+        if (isRunning) {
+            setTimeout(() => {
+                if (isRunning && !eventSource) {
+                    console.log('Attempting to reconnect log stream...');
+                    startLogStream();
+                }
+            }, 2000);
+        }
     };
     
     eventSource.onopen = () => {
