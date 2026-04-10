@@ -98,11 +98,13 @@ class PromptOptimizationSystem:
         
         # State
         self.current_prompt = config.task.initial_prompt
-        self.best_prompt = config.task.initial_prompt
+        self.best_prompt = config.task.initial_prompt       # Statistically significant best
         self.best_score = 0.0
+        self.raw_best_prompt = config.task.initial_prompt  # Highest raw score (no significance gate)
+        self.raw_best_score = 0.0                           # Used for UI display
         self.iteration = 0
         self.dataset: List[DatasetEntry] = []
-        
+
         # Statistical tracking for significance testing
         self.best_scores_history: List[float] = []
         self.baseline_established = False
@@ -615,11 +617,11 @@ class PromptOptimizationSystem:
                 'reason': 'No experiments completed'
             }
         
-        # Calculate improvements
+        # Calculate improvements — use raw_best for display (highest score seen)
         initial_score = all_experiments[0].mean_score if all_experiments else 0
-        final_score = self.best_score
+        final_score = self.raw_best_score  # Raw best for reporting
         improvement = final_score - initial_score
-        
+
         report = {
             'status': 'success',
             'task': self.config.task.name,
@@ -629,7 +631,8 @@ class PromptOptimizationSystem:
             'final_score': final_score,
             'improvement': improvement,
             'improvement_percent': (improvement / initial_score * 100) if initial_score > 0 else 0,
-            'best_prompt': self.best_prompt,
+            'best_prompt': self.raw_best_prompt,          # Highest-scoring prompt seen
+            'stat_best_prompt': self.best_prompt,         # Statistically significant best
             'initial_prompt': self.config.task.initial_prompt,
             'target_reached': self.metric_def.is_target_reached(final_score),
             'experiments_count': len(all_experiments)
@@ -682,6 +685,8 @@ class PromptOptimizationSystem:
         self.iteration = 0  # Baseline is iteration 0
         baseline_experiment = self.run_experiment(self.best_prompt, self.dataset)
         self.best_score = baseline_experiment.mean_score
+        self.raw_best_score = baseline_experiment.mean_score
+        self.raw_best_prompt = self.best_prompt
         self.baseline_established = True
         self.best_scores_history = baseline_experiment.metric_scores.copy()
         
@@ -713,11 +718,13 @@ class PromptOptimizationSystem:
         self.context_manager.add_experiment(baseline_exp_dict)
         
         logger.info(f"*** BASELINE ESTABLISHED *** Score: {self.best_score:.3f}")
+        baseline_preview = self.best_prompt[:300].replace('\n', ' ↵ ')
+        logger.info(f"Initial prompt: {baseline_preview}{'...' if len(self.best_prompt) > 300 else ''}")
         logger.info(f"{'='*60}\n")
         
-        # Notify progress callback of baseline
+        # Notify progress callback of baseline (raw_best = initial at this point)
         if self.progress_callback:
-            self.progress_callback(0, self.best_score, self.best_prompt, self.best_score)
+            self.progress_callback(0, self.raw_best_score, self.raw_best_prompt, self.raw_best_score)
         
         # Start optimization from baseline
         previous_score = self.best_score
@@ -731,10 +738,14 @@ class PromptOptimizationSystem:
             logger.info(f"EXPERIMENT {self.iteration}/{self.config.experiment.max_iterations}")
             logger.info(f"{'='*60}")
             logger.info(f"Testing prompt on {len(self.dataset)} test cases")
-            
+
+            # Signal UI: iteration starting — show prompt being evaluated (current_score=None = pre-run)
+            if self.progress_callback:
+                self.progress_callback(self.iteration, self.raw_best_score, self.raw_best_prompt, None, self.current_prompt)
+
             # Use full dataset for each experiment
             test_batch = self.dataset
-            
+
             # Run experiment
             experiment = self.run_experiment(self.current_prompt, test_batch)
             
@@ -767,20 +778,29 @@ class PromptOptimizationSystem:
             )
             
             score_margin = 0.001  # Small margin to avoid floating point noise
+
+            # Always track the raw best prompt (for UI display — no significance gate)
+            if current_score > (self.raw_best_score + score_margin):
+                self.raw_best_score = current_score
+                self.raw_best_prompt = self.current_prompt
+                prompt_preview = self.raw_best_prompt[:300].replace('\n', ' ↵ ')
+                logger.info(f"*** NEW BEST *** Score: {self.raw_best_score:.3f} (+{current_score - self.best_score:.3f})")
+                logger.info(f"Best prompt: {prompt_preview}{'...' if len(self.raw_best_prompt) > 300 else ''}")
+
+            # Update statistically significant best (used for optimizer context)
             if current_score > (self.best_score + score_margin) and is_significant:
-                improvement = current_score - self.best_score
                 self.best_score = current_score
                 self.best_prompt = self.current_prompt
                 self.best_scores_history = current_scores.copy()
-                logger.info(f"*** NEW BEST *** Score: {self.best_score:.3f} (+{improvement:.3f}) [statistically significant]")
+                logger.info(f"(Statistically confirmed as new baseline for optimizer)")
             elif current_score > (self.best_score + score_margin):
-                logger.info(f"Score: {current_score:.3f} (best: {self.best_score:.3f}) - improvement NOT statistically significant")
+                logger.info(f"Score: {current_score:.3f} (best: {self.best_score:.3f}) - not yet statistically significant")
             else:
-                logger.info(f"Score: {current_score:.3f} (best: {self.best_score:.3f})")
-            
-            # Notify progress callback
+                logger.info(f"Score: {current_score:.3f} (best so far: {self.raw_best_score:.3f})")
+
+            # Notify progress callback — pass raw_best for UI display + current prompt
             if self.progress_callback:
-                self.progress_callback(self.iteration, self.best_score, self.best_prompt, current_score)
+                self.progress_callback(self.iteration, self.raw_best_score, self.raw_best_prompt, current_score, self.current_prompt)
             
             # Add to context manager
             exp_dict = {

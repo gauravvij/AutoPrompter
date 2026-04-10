@@ -4,8 +4,9 @@ Generates synthetic input-output pairs relevant to the configured task.
 """
 
 import json
+import re
 import logging
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
 from dataclasses import dataclass, asdict
 from llm_client import LLMClient
 
@@ -18,14 +19,14 @@ class DatasetEntry:
     input: str
     expected_output: str
     metadata: Dict[str, Any] = None
-    
+
     def __post_init__(self):
         if self.metadata is None:
             self.metadata = {}
-    
+
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
-    
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'DatasetEntry':
         return cls(**data)
@@ -33,373 +34,252 @@ class DatasetEntry:
 
 class DatasetGenerator:
     """Generates synthetic datasets using Optimizer LLM."""
-    
+
     def __init__(self, llm_client: LLMClient, task_config):
-        """Initialize with LLM client and task configuration."""
         self.llm_client = llm_client
         self.task_config = task_config
-    
-    def _build_generation_prompt(self, num_samples: int) -> str:
-        """Build prompt for dataset generation."""
-        return f"""You are a dataset generation assistant. Generate {num_samples} diverse and realistic test cases for the following task:
 
-Task Name: {self.task_config.name}
-Task Description: {self.task_config.description}
+    # ------------------------------------------------------------------ #
+    #  JSON parsing — robust multi-strategy                               #
+    # ------------------------------------------------------------------ #
 
-For each test case, provide:
-1. An input that would be given to an AI model
-2. The expected/correct output
+    @staticmethod
+    def _fix_json(text: str) -> str:
+        """Apply lightweight fixes for common LLM JSON mistakes."""
+        # Remove trailing commas before ] or }
+        text = re.sub(r',\s*([}\]])', r'\1', text)
+        # Remove JS-style // comments
+        text = re.sub(r'//[^\n]*', '', text)
+        # Remove /* … */ comments
+        text = re.sub(r'/\*.*?\*/', '', text, flags=re.DOTALL)
+        return text
 
-Requirements:
-- Ensure inputs are diverse and cover different scenarios
-- Make inputs realistic and contextually relevant
-- Expected outputs should be accurate and consistent
-- Include edge cases and challenging examples
-- Format as a JSON array with objects containing "input" and "expected_output" fields
-- IMPORTANT: Use simple ASCII characters only, avoid special quotes or unicode
-- Keep inputs and outputs concise (under 500 chars each)
+    @staticmethod
+    def _extract_json_array(text: str) -> Optional[list]:
+        """Extract the outermost JSON array from arbitrary text."""
+        start = text.find('[')
+        if start == -1:
+            return None
+        # Walk forward counting brackets to find the matching ]
+        depth = 0
+        for i, ch in enumerate(text[start:], start):
+            if ch == '[':
+                depth += 1
+            elif ch == ']':
+                depth -= 1
+                if depth == 0:
+                    candidate = text[start:i + 1]
+                    try:
+                        return json.loads(candidate)
+                    except json.JSONDecodeError:
+                        try:
+                            return json.loads(DatasetGenerator._fix_json(candidate))
+                        except json.JSONDecodeError:
+                            pass
+        return None
 
-Example format:
-[
-  {{
-    "input": "example input text",
-    "expected_output": "example expected response"
-  }}
-]
+    @staticmethod
+    def _extract_objects(text: str) -> list:
+        """Regex-extract individual JSON objects when the array wrapper is broken."""
+        results = []
+        # Match {...} blocks (non-nested for simplicity)
+        for m in re.finditer(r'\{[^{}]+\}', text, re.DOTALL):
+            raw = m.group(0)
+            for attempt in (raw, DatasetGenerator._fix_json(raw)):
+                try:
+                    obj = json.loads(attempt)
+                    if isinstance(obj, dict):
+                        results.append(obj)
+                        break
+                except json.JSONDecodeError:
+                    pass
+        return results
 
-Generate exactly {num_samples} test cases."""
-    
-    def _parse_dataset_response(self, response: str) -> List[DatasetEntry]:
-        """Parse LLM response into dataset entries with robust error handling."""
+    def _robust_parse(self, text: str) -> list:
+        """Try every strategy to get a list of dicts from LLM output."""
+        text = text.strip()
+
+        # Strip markdown fences
+        text = re.sub(r'^```(?:json)?\s*', '', text, flags=re.MULTILINE)
+        text = re.sub(r'```\s*$', '', text, flags=re.MULTILINE)
+        text = text.strip()
+
+        # 1. Direct parse
         try:
-            # Try to extract JSON from response
-            content = response.strip()
-            
-            # Remove markdown code blocks if present
-            if content.startswith("```json"):
-                content = content[7:]
-            elif content.startswith("```"):
-                content = content[3:]
-            if content.endswith("```"):
-                content = content[:-3]
-            
-            content = content.strip()
-            
-            # Try to find JSON array in the content
-            # Look for the first '[' and last ']'
-            start_idx = content.find('[')
-            end_idx = content.rfind(']')
-            
-            if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
-                content = content[start_idx:end_idx+1]
-            
-            # Parse JSON
-            data = json.loads(content)
-            
-            if not isinstance(data, list):
-                logger.error(f"Expected list, got {type(data)}")
-                return []
-            
-            entries = []
-            for item in data:
-                if isinstance(item, dict) and 'input' in item and 'expected_output' in item:
+            data = json.loads(text)
+            if isinstance(data, list):
+                return data
+        except json.JSONDecodeError:
+            pass
+
+        # 2. Direct parse after fixes
+        try:
+            data = json.loads(self._fix_json(text))
+            if isinstance(data, list):
+                return data
+        except json.JSONDecodeError:
+            pass
+
+        # 3. Extract outermost array
+        arr = self._extract_json_array(text)
+        if arr is not None:
+            return arr
+
+        # 4. Pull individual objects
+        objs = self._extract_objects(text)
+        if objs:
+            return objs
+
+        return []
+
+    def _parse_dataset_response(self, response: str) -> List[DatasetEntry]:
+        items = self._robust_parse(response)
+        entries = []
+        for item in items:
+            if isinstance(item, dict) and 'input' in item and 'expected_output' in item:
+                inp = str(item['input']).strip()
+                out = str(item['expected_output']).strip()
+                if inp and out:
                     entries.append(DatasetEntry(
-                        input=item['input'],
-                        expected_output=item['expected_output'],
+                        input=inp,
+                        expected_output=out,
                         metadata=item.get('metadata', {})
                     ))
-            
-            return entries
-            
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse dataset response: {e}")
-            logger.debug(f"Response content: {response[:500]}...")
-            return []
-        except Exception as e:
-            logger.error(f"Unexpected error parsing dataset: {e}")
-            return []
-    
-    def generate(self, num_samples: int, max_retries: int = 3) -> List[DatasetEntry]:
-        """Generate dataset with specified number of samples.
-        
-        Uses chunked generation for large sample sizes to improve reliability.
-        """
-        logger.info(f"Generating {num_samples} dataset samples...")
-        
-        all_entries = []
-        chunk_size = min(10, num_samples)  # Generate in chunks of 10 for reliability
-        chunks_needed = (num_samples + chunk_size - 1) // chunk_size
-        
-        for chunk_idx in range(chunks_needed):
-            remaining = num_samples - len(all_entries)
-            current_chunk_size = min(chunk_size, remaining)
-            
-            logger.info(f"Generating chunk {chunk_idx + 1}/{chunks_needed} ({current_chunk_size} samples)...")
-            
-            chunk_entries = self._generate_chunk(current_chunk_size, max_retries)
-            
-            if chunk_entries:
-                all_entries.extend(chunk_entries)
-                logger.info(f"Chunk {chunk_idx + 1} complete: {len(chunk_entries)} entries (total: {len(all_entries)})")
-            else:
-                logger.warning(f"Chunk {chunk_idx + 1} failed to generate entries")
-            
-            # Stop if we've generated enough
-            if len(all_entries) >= num_samples:
-                break
-        
-        if len(all_entries) >= num_samples * 0.5:  # Accept if we got at least 50%
-            logger.info(f"Successfully generated {len(all_entries)} dataset entries")
-            return all_entries[:num_samples]
-        else:
-            logger.error(f"Failed to generate sufficient dataset entries: {len(all_entries)}/{num_samples}")
-            return []
-    
-    def _generate_chunk(self, chunk_size: int, max_retries: int) -> List[DatasetEntry]:
-        """Generate a single chunk of dataset entries with robust fallback mechanisms."""
-        
-        errors = []
-        
-        # Try standard generation first
-        for attempt in range(max_retries):
-            prompt = self._build_generation_prompt(chunk_size)
-            
-            response = self.llm_client.query(
-                prompt,
-                system_message="You are a helpful assistant that generates high-quality test datasets. Always respond with valid JSON array format."
-            )
-            
-            if not response.success:
-                error_msg = f"Attempt {attempt + 1} failed: {response.error}"
-                logger.warning(error_msg)
-                errors.append(error_msg)
-                continue
-            
-            entries = self._parse_dataset_response(response.content)
-            
-            if len(entries) >= chunk_size * 0.5:  # Accept if we got at least 50% of chunk
-                logger.info(f"Successfully generated {len(entries)} entries on attempt {attempt + 1}")
-                return entries[:chunk_size]
-            else:
-                warning_msg = f"Only generated {len(entries)} entries in chunk (expected ~{chunk_size}), retrying..."
-                logger.warning(warning_msg)
-                errors.append(warning_msg)
-        
-        # Fallback 1: Try with simpler prompt
-        logger.warning("Standard generation failed, trying simplified fallback prompt...")
-        for attempt in range(2):
-            simple_prompt = self._build_simple_fallback_prompt(chunk_size)
-            
-            response = self.llm_client.query(
-                simple_prompt,
-                system_message="Generate test cases in simple JSON format."
-            )
-            
-            if response.success:
-                entries = self._parse_dataset_response(response.content)
-                if len(entries) >= chunk_size * 0.3:  # Lower threshold for fallback
-                    logger.info(f"Fallback generation succeeded with {len(entries)} entries")
-                    return entries[:chunk_size]
-            else:
-                errors.append(f"Fallback attempt {attempt + 1} failed: {response.error}")
-        
-        # Fallback 2: Try with even simpler prompt and lower expectations
-        logger.warning("Simplified fallback failed, trying minimal prompt...")
-        minimal_prompt = f"""Create {chunk_size} simple Q&A pairs for: {self.task_config.name}
-
-Example format:
-Q: [question]
-A: [answer]
-
-Create {chunk_size} examples:"""
-        
-        response = self.llm_client.query(minimal_prompt)
-        if response.success and response.content:
-            # Try to parse Q&A format
-            entries = self._parse_qa_format(response.content)
-            if len(entries) >= chunk_size * 0.2:
-                logger.info(f"Minimal prompt generation succeeded with {len(entries)} entries")
-                return entries[:chunk_size]
-        
-        # Final fallback: Generate minimal examples manually
-        logger.error(f"All generation attempts failed. Errors: {errors}")
-        logger.warning(f"Creating {chunk_size} minimal fallback entries to guarantee batch_size")
-        return self._create_minimal_fallback_entries(chunk_size)
-    
-    def _parse_qa_format(self, content: str) -> List[DatasetEntry]:
-        """Parse Q&A format response into dataset entries."""
-        entries = []
-        lines = content.strip().split('\n')
-        
-        current_input = None
-        current_output = None
-        
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
-            
-            # Check for Q: or Question: prefix
-            if line.upper().startswith('Q:') or line.upper().startswith('QUESTION:'):
-                # Save previous entry if exists
-                if current_input and current_output:
-                    entries.append(DatasetEntry(
-                        input=current_input,
-                        expected_output=current_output,
-                        metadata={"source": "qa_parsing"}
-                    ))
-                current_input = line.split(':', 1)[1].strip() if ':' in line else line
-                current_output = None
-            
-            # Check for A: or Answer: prefix
-            elif line.upper().startswith('A:') or line.upper().startswith('ANSWER:'):
-                current_output = line.split(':', 1)[1].strip() if ':' in line else line
-            
-            # Handle numbered format (1., 2., etc.)
-            elif line[0].isdigit() and '. ' in line[:5]:
-                # This might be a numbered question
-                if current_input and current_output:
-                    entries.append(DatasetEntry(
-                        input=current_input,
-                        expected_output=current_output,
-                        metadata={"source": "qa_parsing"}
-                    ))
-                parts = line.split('. ', 1)
-                if len(parts) > 1:
-                    current_input = parts[1]
-                    current_output = None
-        
-        # Don't forget the last entry
-        if current_input and current_output:
-            entries.append(DatasetEntry(
-                input=current_input,
-                expected_output=current_output,
-                metadata={"source": "qa_parsing"}
-            ))
-        
         return entries
-    
-    def _build_simple_fallback_prompt(self, num_samples: int) -> str:
-        """Build a simpler fallback prompt for dataset generation."""
-        return f"""Generate {num_samples} simple test cases for: {self.task_config.name}
+
+    # ------------------------------------------------------------------ #
+    #  Prompt builders                                                     #
+    # ------------------------------------------------------------------ #
+
+    def _build_generation_prompt(self, num_samples: int) -> str:
+        return f"""Generate exactly {num_samples} test cases for this task as a JSON array.
 
 Task: {self.task_config.description}
 
-Return ONLY a JSON array like this:
-[{{"input": "test input here", "expected_output": "expected answer here"}}]
+Return ONLY valid JSON — no explanation, no markdown, no extra text.
+Format:
+[
+  {{"input": "...", "expected_output": "..."}},
+  {{"input": "...", "expected_output": "..."}}
+]
 
-Generate {num_samples} examples."""
-    
-    def _create_minimal_fallback_entries(self, num_samples: int) -> List[DatasetEntry]:
-        """Create minimal fallback entries when LLM generation fails completely."""
-        logger.warning(f"Creating {num_samples} minimal fallback entries for {self.task_config.name}")
-        
-        entries = []
+Rules:
+- Use only plain ASCII characters
+- Keep each input under 200 characters
+- Keep each expected_output under 50 characters
+- Make inputs diverse and realistic
+
+Generate {num_samples} entries now:"""
+
+    # ------------------------------------------------------------------ #
+    #  Generation                                                          #
+    # ------------------------------------------------------------------ #
+
+    def _create_fallback_entries(self, num_samples: int) -> List[DatasetEntry]:
+        """Hardcoded fallback so the run is never blocked by dataset failure."""
         task_name = self.task_config.name.lower()
-        
-        # Create task-specific fallback examples
-        if "reasoning" in task_name or "logic" in task_name:
-            templates = [
-                ("If A is taller than B, and B is taller than C, who is tallest?", "A is the tallest."),
-                ("All cats are mammals. Is a cat a mammal?", "Yes, a cat is a mammal."),
-                ("If it rains, the ground gets wet. It is raining. Is the ground wet?", "Yes, the ground is wet."),
-                ("Three people: Alice, Bob, Charlie. Alice is older than Bob. Bob is older than Charlie. Who is youngest?", "Charlie is the youngest."),
-                ("If all roses are flowers and some flowers are red, are all roses red?", "No, not all roses are necessarily red.")
+        desc = self.task_config.description.lower()
+
+        if any(w in task_name + desc for w in ('sentiment', 'positive', 'negative', 'classify')):
+            pool = [
+                ("I absolutely love this product!", "positive"),
+                ("This is the worst experience I have ever had.", "negative"),
+                ("The service was fantastic and staff were helpful.", "positive"),
+                ("I am very disappointed with this purchase.", "negative"),
+                ("Everything worked perfectly, highly recommend!", "positive"),
+                ("Terrible quality, broke after one day.", "negative"),
+                ("Surprisingly good value for money.", "positive"),
+                ("Would not recommend this to anyone.", "negative"),
+                ("Great customer support, resolved my issue fast.", "positive"),
+                ("The product description was completely misleading.", "negative"),
             ]
-        elif "sentiment" in task_name or "classification" in task_name:
-            templates = [
-                ("I love this product!", "positive"),
-                ("This is terrible.", "negative"),
-                ("It's okay, nothing special.", "neutral"),
-                ("Best experience ever!", "positive"),
-                ("I hate waiting.", "negative")
+        elif any(w in task_name + desc for w in ('translat', 'language')):
+            pool = [
+                ("Hello, how are you?", "Bonjour, comment allez-vous?"),
+                ("Good morning!", "Bonjour!"),
+                ("Thank you very much.", "Merci beaucoup."),
+                ("Where is the station?", "Où est la gare?"),
+                ("I need help.", "J'ai besoin d'aide."),
+            ]
+        elif any(w in task_name + desc for w in ('summar', 'abstract')):
+            pool = [
+                ("The quick brown fox jumps over the lazy dog. Dogs are common pets.", "Fox jumps over dog."),
+                ("Python is a programming language. It is widely used in data science.", "Python is popular in data science."),
+                ("The meeting was held on Monday. All teams attended and discussed Q3 goals.", "Monday meeting discussed Q3 goals."),
+                ("Climate change is affecting global weather patterns significantly.", "Climate change alters weather patterns."),
+                ("The company reported record profits last quarter due to strong sales.", "Company had record profits from strong sales."),
             ]
         else:
-            # Generic templates
-            templates = [
-                (f"Example input 1 for {self.task_config.name}", "Expected output 1"),
-                (f"Example input 2 for {self.task_config.name}", "Expected output 2"),
-                (f"Example input 3 for {self.task_config.name}", "Expected output 3"),
-                (f"Example input 4 for {self.task_config.name}", "Expected output 4"),
-                (f"Example input 5 for {self.task_config.name}", "Expected output 5")
+            pool = [
+                (f"Sample input {i + 1} for {self.task_config.name}",
+                 f"Expected output {i + 1}")
+                for i in range(10)
             ]
-        
-        # Generate entries from templates
+
+        entries = []
         for i in range(num_samples):
-            template = templates[i % len(templates)]
-            # Add variation to make them unique
-            variation = f" (variant {i//len(templates) + 1})" if i >= len(templates) else ""
+            inp, out = pool[i % len(pool)]
+            suffix = f" [{i // len(pool) + 1}]" if i >= len(pool) else ""
             entries.append(DatasetEntry(
-                input=template[0] + variation,
-                expected_output=template[1],
-                metadata={"source": "fallback_generation", "template_index": i % len(templates)}
+                input=inp + suffix,
+                expected_output=out,
+                metadata={"source": "fallback"}
             ))
-        
+        logger.warning(f"Using {num_samples} hardcoded fallback entries for '{self.task_config.name}'")
         return entries
-    
+
+    def generate(self, num_samples: int, max_retries: int = 2) -> List[DatasetEntry]:
+        logger.info(f"Generating {num_samples} dataset samples...")
+
+        for attempt in range(max_retries):
+            prompt = self._build_generation_prompt(num_samples)
+            response = self.llm_client.query(
+                prompt,
+                system_message="You are a JSON generator. Output only valid JSON arrays. No explanation."
+            )
+
+            if not response.success:
+                logger.warning(f"Dataset generation attempt {attempt + 1} API error: {response.error}")
+                continue
+
+            entries = self._parse_dataset_response(response.content)
+
+            if len(entries) >= max(1, num_samples // 2):
+                logger.info(f"Dataset generated: {len(entries)} entries (attempt {attempt + 1})")
+                return entries[:num_samples]
+
+            logger.warning(f"Attempt {attempt + 1}: parsed {len(entries)}/{num_samples} entries, retrying...")
+            if response.content:
+                logger.debug(f"Raw response snippet: {response.content[:300]}")
+
+        # All LLM attempts failed — use hardcoded fallback immediately
+        logger.warning("LLM dataset generation failed, using hardcoded fallback entries")
+        return self._create_fallback_entries(num_samples)
+
+    # ------------------------------------------------------------------ #
+    #  Validation / persistence                                            #
+    # ------------------------------------------------------------------ #
+
     def validate_dataset(self, entries: List[DatasetEntry]) -> Tuple[bool, str]:
-        """Validate generated dataset for quality."""
         if not entries:
             return False, "Dataset is empty"
-        
-        # Check for duplicates
         inputs_seen = set()
-        duplicates = 0
-        for entry in entries:
-            if entry.input in inputs_seen:
-                duplicates += 1
-            inputs_seen.add(entry.input)
-        
-        if duplicates > len(entries) * 0.1:  # More than 10% duplicates
+        duplicates = sum(1 for e in entries if e.input in inputs_seen or inputs_seen.add(e.input))
+        if duplicates > len(entries) * 0.1:
             return False, f"Too many duplicates: {duplicates}/{len(entries)}"
-        
-        # Check for empty entries
-        empty_count = sum(1 for e in entries if not e.input or not e.expected_output)
-        if empty_count > 0:
-            return False, f"Found {empty_count} empty entries"
-        
-        return True, f"Dataset valid: {len(entries)} entries, {duplicates} duplicates"
-    
+        empty = sum(1 for e in entries if not e.input or not e.expected_output)
+        if empty > 0:
+            return False, f"Found {empty} empty entries"
+        return True, f"Dataset valid: {len(entries)} entries"
+
     def save_dataset(self, entries: List[DatasetEntry], filepath: str):
-        """Save dataset to JSON file."""
-        data = [entry.to_dict() for entry in entries]
         with open(filepath, 'w') as f:
-            json.dump(data, f, indent=2)
+            json.dump([e.to_dict() for e in entries], f, indent=2)
         logger.info(f"Dataset saved to {filepath}")
-    
+
     def load_dataset(self, filepath: str) -> List[DatasetEntry]:
-        """Load dataset from JSON file."""
         with open(filepath, 'r') as f:
             data = json.load(f)
         entries = [DatasetEntry.from_dict(item) for item in data]
         logger.info(f"Loaded {len(entries)} entries from {filepath}")
         return entries
-
-
-if __name__ == "__main__":
-    # Test dataset generation
-    from config_manager import Config, LLMConfig, TaskConfig
-    
-    config = Config(
-        optimizer_llm=LLMConfig(model="qwen/qwen3-8b:free"),
-        target_llm=LLMConfig(model="qwen/qwen3-8b:free"),
-        experiment=None,
-        task=TaskConfig(
-            name="sentiment_analysis",
-            description="Classify text sentiment as positive or negative"
-        ),
-        metric=None,
-        context=None,
-        storage=None
-    )
-    
-    client = LLMClient(config.optimizer_llm)
-    generator = DatasetGenerator(client, config.task)
-    
-    print("Testing dataset generation...")
-    entries = generator.generate(5)
-    
-    print(f"\nGenerated {len(entries)} entries:")
-    for i, entry in enumerate(entries[:3], 1):
-        print(f"\n{i}. Input: {entry.input[:100]}...")
-        print(f"   Expected: {entry.expected_output}")

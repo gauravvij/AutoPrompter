@@ -44,7 +44,7 @@ class LLMClient:
             "X-Title": "Prompt Autoresearch System"
         })
         self.last_request_time = 0
-        self.min_request_interval = 0.5  # seconds between requests
+        self.min_request_interval = 2.0  # seconds between requests (free models need spacing)
     
     def _rate_limit(self):
         """Apply rate limiting."""
@@ -84,15 +84,49 @@ class LLMClient:
                     json=payload,
                     timeout=60
                 )
-                
-                if response.status_code == 429:
-                    # Rate limited - wait longer
-                    wait_time = 2 ** attempt
-                    logger.warning(f"Rate limited. Waiting {wait_time}s...")
+
+                # Handle error status codes before parsing body
+                if response.status_code in (429, 503):
+                    wait_time = 10 * (2 ** attempt)  # 10s, 20s, 40s
+                    logger.warning(f"Rate limited (HTTP {response.status_code}). Waiting {wait_time}s before retry {attempt+1}/{max_retries}...")
                     time.sleep(wait_time)
                     continue
-                
-                response.raise_for_status()
+
+                if response.status_code >= 400:
+                    # Try to read the JSON body for a more informative error message
+                    error_msg = f"HTTP {response.status_code}"
+                    is_rate_limit = False
+                    try:
+                        err_body = response.json()
+                        err_detail = err_body.get('error', {})
+                        err_code = err_detail.get('code') if isinstance(err_detail, dict) else None
+                        err_text = (err_detail.get('message', '') if isinstance(err_detail, dict) else str(err_detail)) or ''
+                        raw_text = (err_detail.get('metadata', {}) or {}).get('raw', '') if isinstance(err_detail, dict) else ''
+                        error_msg = f"HTTP {response.status_code}: {err_text}"
+                        # Detect provider-side rate limit returned as 4xx
+                        rl_indicators = ('rate', 'quota', 'limit', 'throttl', 'too many', 'capacity', 'upstream')
+                        if err_code in (429, 503) or any(w in (err_text + raw_text).lower() for w in rl_indicators):
+                            is_rate_limit = True
+                    except Exception:
+                        error_msg = f"HTTP {response.status_code}: {response.text[:200]}"
+
+                    if is_rate_limit:
+                        wait_time = 10 * (2 ** attempt)
+                        logger.warning(f"Provider rate limit ({error_msg}). Waiting {wait_time}s before retry {attempt+1}/{max_retries}...")
+                        time.sleep(wait_time)
+                        continue
+
+                    # Genuine bad request — log and fail immediately (retrying won't help)
+                    logger.error(f"Request rejected by API ({error_msg}) for model {self.model}")
+                    return LLMResponse(
+                        content="",
+                        model=self.model,
+                        usage={},
+                        latency_ms=(time.time() - start_time) * 1000,
+                        success=False,
+                        error=error_msg
+                    )
+
                 data = response.json()
                 
                 latency_ms = (time.time() - start_time) * 1000

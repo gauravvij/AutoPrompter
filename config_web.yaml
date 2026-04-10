@@ -4,10 +4,10 @@ context:
 experiment:
   batch_size: 5
   convergence_threshold: 0.95
-  max_iterations: 20
+  max_iterations: 5
   min_improvement: 0.01
   parallel_candidates: 3
-  parallel_enabled: true
+  parallel_enabled: false
   parallel_workers: 3
 metric:
   target_score: 0.95
@@ -16,8 +16,8 @@ optimizer_llm:
   api_base: https://openrouter.ai/api/v1
   api_key: null
   backend: openrouter
-  max_tokens: 32000
-  model: qwen/qwen3.5-35b-a3b
+  max_tokens: 2048
+  model: meta-llama/llama-3.1-8b-instruct
   temperature: 0.7
 storage:
   checkpoint_interval: 10
@@ -28,11 +28,11 @@ target_llm:
   api_base: https://openrouter.ai/api/v1
   api_key: null
   backend: openrouter
-  max_tokens: 32000
-  model: qwen/qwen3.5-27b
-  temperature: 0.3
+  max_tokens: 128
+  model: mistralai/mistral-nemo
+  temperature: 0.1
 task:
-  description: AI agent to build websites
-  initial_prompt: 'You are an ai agent for website building. When you are given a
-    task, you write code to accomplish it without any errors. '
-  name: web_build_agent
+  description: Classify text into positive or negative sentiment
+  initial_prompt: Analyze the sentiment of the following text and respond with only
+    "positive" or "negative".
+  name: text_classification
