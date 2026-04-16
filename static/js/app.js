@@ -17,15 +17,25 @@ let statusEventSource = null;
 let scoreChart = null;
 let isRunning = false;
 let statusPollInterval = null;
+let logPollInterval = null;
+let lastSeenLogTimestamp = '';
+let sseWatchdogTimer = null;
+let sseReceivedData = false;
+
+// Client-side elapsed time counter
+let elapsedTimerInterval = null;
+let elapsedStartTime = null;   // local Date.now() when run started
+let elapsedBaseSeconds = 0;    // server-reported elapsed at last status update
 
 // Performance optimization state
 const MAX_CHART_POINTS = 50;
-const MAX_LOG_ENTRIES = 100;
-const CHART_UPDATE_INTERVAL = 2000; // 2 seconds
-const STATUS_UPDATE_INTERVAL = 2000; // 2 seconds
+const MAX_LOG_ENTRIES = 200;
+const CHART_UPDATE_INTERVAL = 1000;
+const STATUS_UPDATE_INTERVAL = 2000;
+const SSE_WATCHDOG_MS = 5000; // If no SSE message in 5s, fall back to polling
 let lastChartUpdate = 0;
 let pendingChartUpdate = false;
-let scoreHistoryBuffer = []; // Limited buffer for score history
+let scoreHistoryBuffer = [];
 
 // DOM Elements
 const elements = {
@@ -50,6 +60,9 @@ const elements = {
     elapsedTime: document.getElementById('elapsedTime'),
     runStatus: document.getElementById('runStatus'),
     bestPromptBox: document.getElementById('bestPromptBox'),
+    bestPromptMeta: document.getElementById('bestPromptMeta'),
+    currentTestPromptBox: document.getElementById('currentTestPromptBox'),
+    currentPromptMeta: document.getElementById('currentPromptMeta'),
     logsBox: document.getElementById('logsBox'),
     
     // Buttons
@@ -83,7 +96,10 @@ const elements = {
     // Diff modal
     diffModal: document.getElementById('diffModal'),
     diffContent: document.getElementById('diffContent'),
-    closeDiffBtn: document.getElementById('closeDiffBtn')
+    closeDiffBtn: document.getElementById('closeDiffBtn'),
+
+    // Error banner
+    errorBanner: document.getElementById('errorBanner')
 };
 
 // Initialize
@@ -146,18 +162,12 @@ function updateModelOptions(llmType) {
 
 // Cleanup EventSource connections
 function cleanupEventSources() {
-    if (eventSource) {
-        eventSource.close();
-        eventSource = null;
-    }
-    if (statusEventSource) {
-        statusEventSource.close();
-        statusEventSource = null;
-    }
-    if (statusPollInterval) {
-        clearInterval(statusPollInterval);
-        statusPollInterval = null;
-    }
+    if (eventSource) { eventSource.close(); eventSource = null; }
+    if (statusEventSource) { statusEventSource.close(); statusEventSource = null; }
+    if (statusPollInterval) { clearInterval(statusPollInterval); statusPollInterval = null; }
+    if (logPollInterval) { clearInterval(logPollInterval); logPollInterval = null; }
+    if (sseWatchdogTimer) { clearTimeout(sseWatchdogTimer); sseWatchdogTimer = null; }
+    stopElapsedTimer();
 }
 
 // Handle tab visibility change
@@ -299,31 +309,31 @@ function setupButtonHandlers() {
     }
 }
 
-// Chart.js initialization (performance optimized)
+// Chart.js initialization
 function initChart() {
     const ctx = document.getElementById('scoreChart').getContext('2d');
     scoreChart = new Chart(ctx, {
-        type: 'line',
+        type: 'bar',
         data: {
             labels: [],
             datasets: [{
                 label: 'Best Score',
                 data: [],
+                backgroundColor: 'rgba(79, 70, 229, 0.75)',
                 borderColor: '#4f46e5',
-                backgroundColor: 'rgba(79, 70, 229, 0.1)',
-                tension: 0.4,
-                fill: true,
-                pointRadius: 2, // Smaller points for performance
-                pointHoverRadius: 4
+                borderWidth: 1,
+                borderRadius: 4,
+                borderSkipped: false,
+                maxBarThickness: 28
             }, {
                 label: 'Current Score',
                 data: [],
+                backgroundColor: 'rgba(16, 185, 129, 0.75)',
                 borderColor: '#10b981',
-                backgroundColor: 'rgba(16, 185, 129, 0.1)',
-                tension: 0.4,
-                fill: true,
-                pointRadius: 2,
-                pointHoverRadius: 4
+                borderWidth: 1,
+                borderRadius: 4,
+                borderSkipped: false,
+                maxBarThickness: 28
             }]
         },
         options: {
@@ -338,18 +348,32 @@ function initChart() {
                 y: {
                     beginAtZero: true,
                     max: 1
+                },
+                x: {
+                    grid: {
+                        display: false
+                    },
+                    ticks: {
+                        autoSkip: false
+                    }
                 }
             },
             animation: {
-                duration: 0 // Disable animation for performance
-            },
-            elements: {
-                line: {
-                    borderWidth: 2
-                }
+                duration: 200
             }
         }
     });
+}
+
+// Clear all chart data
+function clearChart() {
+    if (!scoreChart) return;
+    scoreChart.data.labels = [];
+    scoreChart.data.datasets[0].data = [];
+    scoreChart.data.datasets[1].data = [];
+    scoreChart.update('none');
+    scoreHistoryBuffer = [];
+    lastChartUpdate = 0;
 }
 
 // Throttled chart update
@@ -630,11 +654,33 @@ async function startOptimization() {
             elements.stopBtn.disabled = false;
             updateStatusIndicator('running');
             showToast('Optimization started', 'success');
-            
+
+            // Reset all dashboard displays immediately on new run
+            if (elements.currentIteration) elements.currentIteration.textContent = '0';
+            if (elements.bestScore) elements.bestScore.textContent = '0.000';
+            if (elements.elapsedTime) elements.elapsedTime.textContent = '00:00:00';
+            if (elements.runStatus) elements.runStatus.textContent = 'Running';
+            if (elements.errorBanner) elements.errorBanner.style.display = 'none';
+            if (elements.bestPromptBox) elements.bestPromptBox.innerHTML = '<p class="placeholder">Waiting for first iteration...</p>';
+            if (elements.currentTestPromptBox) elements.currentTestPromptBox.innerHTML = '<p class="placeholder">Waiting for first iteration...</p>';
+            if (elements.bestPromptMeta) elements.bestPromptMeta.textContent = '—';
+            if (elements.currentPromptMeta) elements.currentPromptMeta.textContent = '—';
+            if (elements.logsBox) elements.logsBox.innerHTML = '<p class="placeholder">Waiting for logs...</p>';
+            _seenLogs.clear();
+            elapsedBaseSeconds = 0;
+            elapsedStartTime = Date.now();
+            startElapsedTimer();
+            // Hide and clear chart until run completes
+            const chartCard = document.getElementById('scoreChartCard');
+            if (chartCard) chartCard.style.display = 'none';
+            clearChart();
+
             // Switch to dashboard
             document.querySelector('[data-tab="dashboard"]').click();
-            
-            // Start log streaming
+
+            // (Re)start status stream — it may have been closed after previous run completed.
+            // startStatusStream also kicks off log streaming when it detects is_running=true.
+            startStatusStream();
             startLogStream();
         } else {
             showToast(data.message, 'error');
@@ -700,21 +746,78 @@ function debounce(func, wait) {
 function updateDashboard(data) {
     // Update stats
     if (elements.currentIteration) {
-        elements.currentIteration.textContent = data.current_iteration || 0;
+        const cur = data.current_iteration || 0;
+        const max = data.max_iterations || 0;
+        if (data.is_running) {
+            elements.currentIteration.textContent = max > 0 ? `${cur} / ${max}` : cur;
+        } else if (data.has_final_report && max > 0) {
+            elements.currentIteration.textContent = `${cur} / ${max}`;
+        } else if (cur > 0 && !data.is_running) {
+            // Historical state from a previous run — label it clearly
+            elements.currentIteration.textContent = `${cur} (last)`;
+        } else {
+            elements.currentIteration.textContent = '—';
+        }
     }
     if (elements.bestScore) {
         elements.bestScore.textContent = (data.best_score || 0).toFixed(3);
     }
-    if (elements.elapsedTime) {
-        elements.elapsedTime.textContent = formatElapsedTime(data.elapsed_time || 0);
+
+    // Sync client-side elapsed timer from server
+    if (data.is_running) {
+        elapsedBaseSeconds = data.elapsed_time || 0;
+        elapsedStartTime = Date.now();
+        startElapsedTimer();
+    } else {
+        stopElapsedTimer();
+        if (elements.elapsedTime) {
+            elements.elapsedTime.textContent = formatElapsedTime(data.elapsed_time || 0);
+        }
     }
+
     if (elements.runStatus) {
-        elements.runStatus.textContent = data.is_running ? 'Running' : (data.has_final_report ? 'Complete' : 'Idle');
+        if (data.error_message) {
+            elements.runStatus.textContent = 'Error';
+        } else {
+            elements.runStatus.textContent = data.is_running ? 'Running' : (data.has_final_report ? 'Complete' : 'Idle');
+        }
     }
     
-    // Update best prompt
+    // Show/hide error banner
+    if (elements.errorBanner) {
+        if (data.error_message) {
+            elements.errorBanner.textContent = 'Error: ' + data.error_message;
+            elements.errorBanner.style.display = 'block';
+        } else {
+            elements.errorBanner.style.display = 'none';
+        }
+    }
+
+    // Update best prompt with meta label
     if (elements.bestPromptBox && data.best_prompt) {
         elements.bestPromptBox.innerHTML = `<pre>${escapeHtml(data.best_prompt)}</pre>`;
+    }
+    if (elements.bestPromptMeta) {
+        const bestIter = data.best_prompt_iteration || 0;
+        const bestScore = typeof data.best_score === 'number' ? data.best_score.toFixed(3) : '—';
+        elements.bestPromptMeta.textContent = bestIter > 0
+            ? `score ${bestScore} · iteration ${bestIter}`
+            : (data.best_prompt ? `score ${bestScore} · baseline` : '—');
+    }
+
+    // Update currently-testing prompt
+    if (elements.currentTestPromptBox) {
+        const cur = data.current_test_prompt;
+        if (cur) {
+            elements.currentTestPromptBox.innerHTML = `<pre>${escapeHtml(cur)}</pre>`;
+        }
+    }
+    if (elements.currentPromptMeta) {
+        const cur = data.current_iteration || 0;
+        const max = data.max_iterations || 0;
+        elements.currentPromptMeta.textContent = data.is_running
+            ? `iteration ${cur}${max > 0 ? ' / ' + max : ''}`
+            : (data.has_final_report ? 'run complete' : '—');
     }
     
     // Store previous best prompt for diff
@@ -733,9 +836,9 @@ function updateDashboard(data) {
         isRunning = false;
         elements.startBtn.disabled = false;
         elements.stopBtn.disabled = true;
-        
-        // Close streams when complete
-        cleanupEventSources();
+        // Keep the status stream alive — closing it here causes a race condition
+        // where the next Start click sees stale "complete" data and kills the
+        // new stream before any real updates arrive.
     } else {
         updateStatusIndicator('idle');
         isRunning = false;
@@ -743,12 +846,26 @@ function updateDashboard(data) {
         elements.stopBtn.disabled = true;
     }
     
-    // Update chart if we have score history
-    if (data.score_history && data.score_history.length > 0) {
-        const labels = data.score_history.map(h => `Iter ${h.iteration}`);
-        const bestScores = data.score_history.map(h => h.best_score || 0);
-        const currentScores = data.score_history.map(h => h.current_score || 0);
-        updateChartThrottled(labels, bestScores, currentScores);
+    // Show chart only on completion with full history
+    const chartCard = document.getElementById('scoreChartCard');
+    if (data.has_final_report && data.score_history && data.score_history.length > 0) {
+        // Pad to max_iterations — skipped/duplicate iterations leave gaps in score_history
+        const maxIter = data.max_iterations || data.score_history.length;
+        const history = [...data.score_history];
+        while (history.length < maxIter) {
+            const last = history[history.length - 1];
+            history.push({ best_score: last.best_score, current_score: last.current_score });
+        }
+        if (history.length > 0) {
+            const labels = history.map((_, i) => `Iter ${i + 1}`);
+            const bestScores = history.map(h => h.best_score || 0);
+            const currentScores = history.map(h => h.current_score || 0);
+            updateChartThrottled(labels, bestScores, currentScores);
+            if (chartCard) chartCard.style.display = '';
+        }
+    } else {
+        if (chartCard) chartCard.style.display = 'none';
+        clearChart();
     }
 }
 
@@ -758,6 +875,27 @@ function formatElapsedTime(seconds) {
     const mins = Math.floor((seconds % 3600) / 60);
     const secs = Math.floor(seconds % 60);
     return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+}
+
+// Start client-side elapsed timer (ticks every second while running)
+function startElapsedTimer() {
+    if (elapsedTimerInterval) return; // already running
+    elapsedTimerInterval = setInterval(() => {
+        if (!elapsedStartTime) return;
+        const localElapsed = (Date.now() - elapsedStartTime) / 1000;
+        const total = elapsedBaseSeconds + localElapsed;
+        if (elements.elapsedTime) {
+            elements.elapsedTime.textContent = formatElapsedTime(total);
+        }
+    }, 1000);
+}
+
+function stopElapsedTimer() {
+    if (elapsedTimerInterval) {
+        clearInterval(elapsedTimerInterval);
+        elapsedTimerInterval = null;
+    }
+    elapsedStartTime = null;
 }
 
 // Escape HTML
@@ -791,145 +929,192 @@ function updateStatusIndicator(status) {
     }
 }
 
-// Start status stream (SSE with polling fallback)
+// Start status stream — SSE with aggressive polling fallback
 function startStatusStream() {
-    // Close existing connections
     cleanupEventSources();
-    
-    // Try SSE first
+    sseReceivedData = false;
+
+    // Watchdog: if no real data arrives via SSE within 5s, switch to polling
+    sseWatchdogTimer = setTimeout(() => {
+        if (!sseReceivedData) {
+            console.warn('SSE watchdog: no data received, switching to HTTP polling');
+            if (statusEventSource) { statusEventSource.close(); statusEventSource = null; }
+            startStatusPolling();
+            startLogPolling();
+        }
+    }, SSE_WATCHDOG_MS);
+
     try {
         statusEventSource = new EventSource('/api/status/stream');
-        
+
         statusEventSource.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data);
-                if (data.type !== 'heartbeat') {
-                    updateDashboard(data);
-                    
-                    // If running, ensure log stream is active
-                    if (data.is_running && !eventSource) {
-                        startLogStream();
-                    }
-                }
+                if (data.type === 'heartbeat') return;
+                sseReceivedData = true;
+                if (sseWatchdogTimer) { clearTimeout(sseWatchdogTimer); sseWatchdogTimer = null; }
+                updateDashboard(data);
+                // Render any logs bundled in the status update
+                if (data.recent_logs && data.recent_logs.length) renderRecentLogs(data.recent_logs);
+                if (data.is_running && !eventSource) startLogStream();
             } catch (error) {
                 console.error('Failed to parse status update:', error);
             }
         };
-        
-        statusEventSource.onerror = (error) => {
-            console.error('Status SSE error:', error);
-            statusEventSource.close();
-            statusEventSource = null;
-            // Fall back to polling
+
+        statusEventSource.onerror = () => {
+            if (statusEventSource) { statusEventSource.close(); statusEventSource = null; }
+            if (sseWatchdogTimer) { clearTimeout(sseWatchdogTimer); sseWatchdogTimer = null; }
             startStatusPolling();
+            startLogPolling();
         };
-        
+
         statusEventSource.onopen = () => {
-            console.log('Status SSE connected');
-            // Clear any existing poll interval
-            if (statusPollInterval) {
-                clearInterval(statusPollInterval);
-                statusPollInterval = null;
-            }
+            if (statusPollInterval) { clearInterval(statusPollInterval); statusPollInterval = null; }
         };
-        
+
     } catch (error) {
-        console.error('Failed to start SSE, falling back to polling:', error);
+        if (sseWatchdogTimer) { clearTimeout(sseWatchdogTimer); sseWatchdogTimer = null; }
         startStatusPolling();
+        startLogPolling();
     }
 }
 
 // Start status polling (fallback when SSE fails)
 function startStatusPolling() {
-    if (statusPollInterval) return; // Already polling
-    
-    console.log('Starting status polling');
-    statusPollInterval = setInterval(async () => {
+    if (statusPollInterval) return;
+    console.log('Polling /api/status every', STATUS_UPDATE_INTERVAL, 'ms');
+
+    const poll = async () => {
         try {
             const response = await fetch('/api/status');
             const data = await response.json();
-            
             if (data.status === 'success') {
                 updateDashboard(data.data);
-                
-                // If running, ensure log stream is active
-                if (data.data.is_running && !eventSource) {
-                    startLogStream();
+                if (data.data.recent_logs && data.data.recent_logs.length) {
+                    renderRecentLogs(data.data.recent_logs);
                 }
             }
         } catch (error) {
             console.error('Status poll error:', error);
         }
-    }, STATUS_UPDATE_INTERVAL);
-    
-    // Initial poll
-    refreshStatus();
+    };
+
+    poll(); // immediate first call
+    statusPollInterval = setInterval(poll, STATUS_UPDATE_INTERVAL);
 }
 
-// Start log stream (SSE)
+// Log polling fallback (when SSE log stream unavailable)
+function startLogPolling() {
+    if (logPollInterval) return;
+    console.log('Polling /api/logs');
+
+    const poll = async () => {
+        try {
+            const response = await fetch('/api/logs');
+            const data = await response.json();
+            if (data.status === 'success' && data.logs) {
+                renderRecentLogs(data.logs);
+            }
+        } catch (e) { /* ignore */ }
+    };
+
+    poll();
+    logPollInterval = setInterval(poll, 2000);
+}
+
+// Start log stream (SSE) — falls back to polling if not delivering
 function startLogStream() {
-    // Close existing connection
-    if (eventSource) {
-        eventSource.close();
-        eventSource = null;
-    }
-    
+    if (eventSource) { eventSource.close(); eventSource = null; }
+
+    let sseLogGotData = false;
+    const logWatchdog = setTimeout(() => {
+        if (!sseLogGotData) {
+            console.warn('Log SSE stalled, switching to log polling');
+            if (eventSource) { eventSource.close(); eventSource = null; }
+            startLogPolling();
+        }
+    }, SSE_WATCHDOG_MS);
+
     eventSource = new EventSource('/api/logs/stream');
-    
+
     eventSource.onmessage = (event) => {
         try {
             const data = JSON.parse(event.data);
-            if (data.type !== 'heartbeat') {
-                appendLogEntry(data);
-            }
-        } catch (error) {
-            console.error('Failed to parse log entry:', error);
-        }
+            // Heartbeat confirms SSE is alive — reset watchdog even for heartbeats
+            sseLogGotData = true;
+            clearTimeout(logWatchdog);
+            if (data.type === 'heartbeat') return;
+            // Score events are used for chart data at completion — ignore during run
+            if (data.type === 'score') return;
+            appendLogEntry(data);
+        } catch (e) {}
     };
-    
-    eventSource.onerror = (error) => {
-        console.error('Log SSE error:', error);
-        // Reconnect after a delay if still running
-        if (isRunning) {
-            setTimeout(() => {
-                if (isRunning && !eventSource) {
-                    console.log('Attempting to reconnect log stream...');
-                    startLogStream();
-                }
-            }, 2000);
-        }
+
+    eventSource.onerror = () => {
+        clearTimeout(logWatchdog);
+        if (eventSource) { eventSource.close(); eventSource = null; }
+        startLogPolling();
     };
-    
-    eventSource.onopen = () => {
-        console.log('Log SSE connected');
-    };
+}
+
+// Render a batch of log entries (dedup by timestamp+message)
+const _seenLogs = new Set();
+function renderRecentLogs(logs) {
+    if (!elements.logsBox || !logs || !logs.length) return;
+    const placeholder = elements.logsBox.querySelector('.placeholder');
+    if (placeholder) placeholder.remove();
+
+    let added = 0;
+    for (const entry of logs) {
+        const key = (entry.timestamp || '') + '|' + (entry.message || '');
+        if (_seenLogs.has(key)) continue;
+        _seenLogs.add(key);
+        appendLogEntry(entry);
+        added++;
+    }
+
+    // Trim set size
+    if (_seenLogs.size > 500) {
+        const arr = [..._seenLogs];
+        arr.splice(0, 200).forEach(k => _seenLogs.delete(k));
+    }
+}
+
+// Strip ANSI escape codes from a string
+function stripAnsi(str) {
+    // eslint-disable-next-line no-control-regex
+    return str.replace(/\x1b\[[0-9;]*[mGKHF]/g, '');
 }
 
 // Append log entry (throttled and limited)
 function appendLogEntry(entry) {
     if (!elements.logsBox) return;
-    
+
+    // Defensive guard: skip entries missing required fields
+    if (!entry || !entry.level || !entry.message) return;
+
     // Remove placeholder if present
     const placeholder = elements.logsBox.querySelector('.placeholder');
     if (placeholder) {
         placeholder.remove();
     }
-    
+
     // Create log entry element
     const logEntry = document.createElement('div');
     logEntry.className = `log-entry log-${entry.level.toLowerCase()}`;
-    
+
     const timestamp = document.createElement('span');
     timestamp.className = 'log-timestamp';
-    timestamp.textContent = new Date(entry.timestamp).toLocaleTimeString();
-    
+    timestamp.textContent = entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString() : '';
+
     const level = document.createElement('span');
     level.className = `log-level log-level-${entry.level.toLowerCase()}`;
     level.textContent = entry.level;
     
     const message = document.createElement('span');
     message.className = 'log-message';
-    message.textContent = entry.message;
+    message.textContent = stripAnsi(entry.message);
     
     logEntry.appendChild(timestamp);
     logEntry.appendChild(level);
@@ -968,26 +1153,28 @@ const loadCheckpoints = debounce(async function() {
 // Render checkpoints list
 function renderCheckpoints(checkpoints) {
     if (!checkpoints || checkpoints.length === 0) {
-        elements.checkpointsList.innerHTML = '<p class="placeholder">No checkpoints found. Run optimization to create checkpoints.</p>';
+        elements.checkpointsList.innerHTML = '<div class="empty-state"><p>No checkpoints found</p><span>Run an optimization to create checkpoints</span></div>';
         return;
     }
-    
+
     elements.checkpointsList.innerHTML = '';
-    
+
     checkpoints.forEach(cp => {
         const item = document.createElement('div');
         item.className = 'checkpoint-item';
-        
-        const date = new Date(cp.timestamp * 1000).toLocaleString();
-        
+
+        const date = cp.timestamp ? new Date(cp.timestamp * 1000).toLocaleString() : 'Unknown';
+        const score = (typeof cp.best_score === 'number') ? cp.best_score.toFixed(3) : '—';
+        const safePath = escapeHtml(cp.path || '');
+
         item.innerHTML = `
             <div class="checkpoint-info">
-                <div class="checkpoint-name">${escapeHtml(cp.filename)}</div>
-                <div class="checkpoint-meta">Iteration ${cp.iteration} • Score: ${cp.best_score.toFixed(3)} • ${date}</div>
+                <div class="checkpoint-name">${escapeHtml(cp.filename || 'checkpoint')}</div>
+                <div class="checkpoint-meta">Iteration ${cp.iteration || '?'} &bull; Score: ${score} &bull; ${date}</div>
             </div>
-            <button class="btn btn-small" onclick="loadCheckpoint('${escapeHtml(cp.path)}')">Load</button>
+            <button class="btn btn-small" onclick="loadCheckpoint('${safePath}')">Load</button>
         `;
-        
+
         elements.checkpointsList.appendChild(item);
     });
 }

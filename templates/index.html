@@ -3,40 +3,81 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AutoPrompter - Visual Prompt Optimization</title>
+    <title>AutoPrompter</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
 </head>
 <body>
-    <div class="container">
-        <!-- Header -->
-        <header class="header">
-            <h1>🎯 AutoPrompter</h1>
-            <p>Visual Prompt Optimization System</p>
+<div class="app-layout">
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+        <div class="sidebar-brand">
+            <div class="brand-icon">
+                <i data-lucide="zap"></i>
+            </div>
+            <div class="brand-text">
+                <span class="brand-name">AutoPrompter</span>
+                <span class="brand-tagline">Prompt Optimizer</span>
+            </div>
+        </div>
+
+        <nav class="sidebar-nav">
+            <span class="nav-section-label">Workspace</span>
+            <button class="tab-btn active" data-tab="config">
+                <i data-lucide="sliders-horizontal"></i>
+                <span>Config Builder</span>
+            </button>
+            <button class="tab-btn" data-tab="dashboard">
+                <i data-lucide="layout-dashboard"></i>
+                <span>Dashboard</span>
+            </button>
+            <button class="tab-btn" data-tab="checkpoints">
+                <i data-lucide="bookmark"></i>
+                <span>Checkpoints</span>
+            </button>
+            <button class="tab-btn" data-tab="results">
+                <i data-lucide="trophy"></i>
+                <span>Results</span>
+            </button>
+        </nav>
+
+        <div class="sidebar-footer">
             <div class="status-indicator" id="statusIndicator">
                 <span class="status-dot" id="statusDot"></span>
                 <span id="statusText">Idle</span>
             </div>
-        </header>
+        </div>
+    </aside>
 
-        <!-- Navigation Tabs -->
-        <nav class="nav-tabs">
-            <button class="tab-btn active" data-tab="config">⚙️ Config Builder</button>
-            <button class="tab-btn" data-tab="dashboard">📊 Dashboard</button>
-            <button class="tab-btn" data-tab="checkpoints">💾 Checkpoints</button>
-            <button class="tab-btn" data-tab="results">📈 Results</button>
-        </nav>
+    <!-- Main Content -->
+    <main class="main-content">
 
         <!-- Config Builder Tab -->
         <section class="tab-content active" id="config">
-            <div class="panel">
-                <h2>Configuration Builder</h2>
-                <p class="panel-desc">Configure your prompt optimization task</p>
-                
-                <form id="configForm">
-                    <!-- Task Section -->
-                    <div class="form-section">
-                        <h3>📝 Task Configuration</h3>
+            <div class="page-header">
+                <div>
+                    <h1 class="page-title">Config Builder</h1>
+                    <p class="page-subtitle">Configure your prompt optimization task</p>
+                </div>
+            </div>
+
+            <form id="configForm">
+                <!-- Task Configuration -->
+                <div class="card form-card">
+                    <div class="card-header">
+                        <div class="card-header-icon">
+                            <i data-lucide="file-text"></i>
+                        </div>
+                        <div>
+                            <h2 class="card-title">Task Configuration</h2>
+                            <p class="card-desc">Define what you want to optimize</p>
+                        </div>
+                    </div>
+                    <div class="card-body">
                         <div class="form-row">
                             <div class="form-group">
                                 <label for="taskName">Task Name</label>
@@ -52,15 +93,29 @@
                             <textarea id="initialPrompt" name="task.initial_prompt" rows="3" required>Analyze the sentiment of the following text and respond with only "positive" or "negative".</textarea>
                         </div>
                     </div>
+                </div>
 
-                    <!-- LLM Configuration -->
-                    <div class="form-section">
-                        <h3>🤖 LLM Configuration</h3>
-                        <div class="llm-tabs">
-                            <button type="button" class="llm-tab-btn active" data-llm="optimizer">Optimizer LLM</button>
-                            <button type="button" class="llm-tab-btn" data-llm="target">Target LLM</button>
+                <!-- LLM Configuration -->
+                <div class="card form-card">
+                    <div class="card-header">
+                        <div class="card-header-icon">
+                            <i data-lucide="cpu"></i>
                         </div>
-                        
+                        <div>
+                            <h2 class="card-title">LLM Configuration</h2>
+                            <p class="card-desc">Choose models for optimization and target testing</p>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="llm-tabs">
+                            <button type="button" class="llm-tab-btn active" data-llm="optimizer">
+                                <i data-lucide="wand-2"></i> Optimizer LLM
+                            </button>
+                            <button type="button" class="llm-tab-btn" data-llm="target">
+                                <i data-lucide="crosshair"></i> Target LLM
+                            </button>
+                        </div>
+
                         <div class="llm-content active" id="optimizer-llm">
                             <div class="form-row">
                                 <div class="form-group">
@@ -75,50 +130,30 @@
                                 <div class="form-group" id="optModelGroup">
                                     <label for="optModel">Model</label>
                                     <select id="optModel" name="optimizer_llm.model" class="openrouter-models">
-                                        <!-- Anthropic Claude 4 Series (Latest) -->
-                                        <option value="anthropic/claude-opus-4.6" selected>Claude 4.6 Opus</option>
-                                        <option value="anthropic/claude-sonnet-4.6">Claude 4.6 Sonnet</option>
-                                        <option value="anthropic/claude-sonnet-4.5">Claude 4.5 Sonnet</option>
-                                        <!-- OpenAI GPT 5 Series (Latest) -->
-                                        <option value="openai/gpt-5.4">GPT 5.4</option>
-                                        <option value="openai/gpt-5.4-mini">GPT 5.4 Mini</option>
-                                        <option value="openai/gpt-5.4-nano">GPT 5.4 Nano</option>
-                                        <option value="openai/gpt-5.4-pro">GPT 5.4 Pro</option>
-                                        <!-- OpenAI GPT 4 Series -->
-                                        <option value="openai/gpt-4o">GPT-4o</option>
-                                        <option value="openai/gpt-4o-mini">GPT-4o Mini</option>
-                                        <option value="openai/o3-mini">o3 Mini</option>
-                                        <!-- Google Gemini 3 Series (Latest) -->
-                                        <option value="google/gemini-3.1-pro-preview">Gemini 3.1 Pro Preview</option>
-                                        <option value="google/gemini-3-flash-preview">Gemini 3 Flash Preview</option>
-                                        <option value="google/gemini-3.1-flash-lite-preview">Gemini 3.1 Flash Lite Preview</option>
-
-                                        <!-- Meta Llama 4 Series (Latest) -->
-                                        <option value="meta-llama/llama-4-maverick">Llama 4 Maverick</option>
-                                        <!-- Meta Llama 3 Series -->
-                                        <option value="meta-llama/llama-3.3-70b-instruct">Llama 3.3 70B</option>
-                                        <option value="meta-llama/llama-3.1-405b-instruct">Llama 3.1 405B</option>
-                                        <!-- xAI Grok 4 Series (Latest) -->
-                                        <option value="x-ai/grok-4.20">Grok 4.20</option>
-                                        <option value="x-ai/grok-4.10">Grok 4.10</option>
-                                        <option value="x-ai/grok-4.1">Grok 4.1</option>
-                                        <!-- Google Gemma 4 Series (Latest) -->
-                                        <option value="google/gemma-4-31b-it">Gemma 4 31B</option>
-                                        <option value="google/gemma-4-26b-a4b">Gemma 4 26B A4B</option>
-                                        <!-- Google Gemma 3 Series -->
-                                        <option value="google/gemma-3-27b-it">Gemma 3 27B</option>
-                                        <!-- Alibaba Qwen -->
-                                        <option value="qwen/qwen-3.6-plus">Qwen 3.6 Plus</option>
-                                        <option value="qwen/qwen3.5-35b-a3b">Qwen 3.5 35B A3B</option>
-                                        <option value="qwen/qwen3.5-27b">Qwen 3.5 27B</option>
-                                        <option value="qwen/qwen3.5-9b">Qwen 3.5 9B</option>
-                                        <!-- DeepSeek -->
-                                        <option value="deepseek/deepseek-v3">DeepSeek V3</option>
-                                        <option value="deepseek/deepseek-r1">DeepSeek R1</option>
-                                        <!-- Mistral -->
-                                        <option value="mistral/mistral-large">Mistral Large</option>
+                                        <optgroup label="Cheap Paid (~$0.02-0.05/1M tokens) ★">
+                                            <option value="meta-llama/llama-3.1-8b-instruct" selected>Llama 3.1 8B — $0.02/1M ★</option>
+                                            <option value="mistralai/mistral-nemo">Mistral Nemo — $0.02/1M</option>
+                                            <option value="google/gemma-3-4b-it">Gemma 3 4B — $0.04/1M</option>
+                                            <option value="google/gemma-3-12b-it">Gemma 3 12B — $0.04/1M</option>
+                                            <option value="openai/gpt-4o-mini">GPT-4o Mini — $0.15/1M</option>
+                                            <option value="google/gemini-flash-1.5">Gemini 1.5 Flash — $0.08/1M</option>
+                                        </optgroup>
+                                        <optgroup label="Free Models (rate-limited)">
+                                            <option value="google/gemma-3-4b-it:free">Gemma 3 4B (Free)</option>
+                                            <option value="google/gemma-3n-e2b-it:free">Gemma 3n E2B (Free)</option>
+                                            <option value="meta-llama/llama-3.2-3b-instruct:free">Llama 3.2 3B (Free)</option>
+                                            <option value="meta-llama/llama-3.3-70b-instruct:free">Llama 3.3 70B (Free)</option>
+                                        </optgroup>
+                                        <optgroup label="Premium Paid">
+                                            <option value="anthropic/claude-sonnet-4-5">Claude Sonnet 4.5</option>
+                                            <option value="openai/gpt-4o">GPT-4o</option>
+                                            <option value="google/gemini-2.0-flash-001">Gemini 2.0 Flash</option>
+                                            <option value="meta-llama/llama-3.3-70b-instruct">Llama 3.3 70B</option>
+                                            <option value="deepseek/deepseek-v3">DeepSeek V3</option>
+                                            <option value="mistralai/mistral-large">Mistral Large</option>
+                                        </optgroup>
                                     </select>
-                                    <input type="text" id="optModelInput" name="optimizer_llm.model" class="local-model-input" style="display:none;" placeholder="Enter model name (e.g., llama3.1, mistral)" value="llama3.1">
+                                    <input type="text" id="optModelInput" name="optimizer_llm.model" class="local-model-input" style="display:none;" placeholder="e.g., llama3.1, mistral" value="llama3.1">
                                 </div>
                             </div>
                             <div class="form-row">
@@ -132,7 +167,7 @@
                                 </div>
                             </div>
                         </div>
-                        
+
                         <div class="llm-content" id="target-llm">
                             <div class="form-row">
                                 <div class="form-group">
@@ -147,48 +182,32 @@
                                 <div class="form-group" id="targetModelGroup">
                                     <label for="targetModel">Model</label>
                                     <select id="targetModel" name="target_llm.model" class="openrouter-models">
-                                        <!-- Anthropic Claude 4 Series (Latest) -->
-                                        <option value="anthropic/claude-opus-4.6" selected>Claude 4.6 Opus</option>
-                                        <option value="anthropic/claude-sonnet-4.6">Claude 4.6 Sonnet</option>
-                                        <option value="anthropic/claude-sonnet-4.5">Claude 4.5 Sonnet</option>
-                                        <!-- OpenAI GPT 5 Series (Latest) -->
-                                        <option value="openai/gpt-5.4">GPT 5.4</option>
-                                        <option value="openai/gpt-5.4-mini">GPT 5.4 Mini</option>
-                                        <option value="openai/gpt-5.4-nano">GPT 5.4 Nano</option>
-                                        <option value="openai/gpt-5.4-pro">GPT 5.4 Pro</option>
-                                        <!-- OpenAI GPT 4 Series -->
-                                        <option value="openai/gpt-4o">GPT-4o</option>
-                                        <option value="openai/gpt-4o-mini">GPT-4o Mini</option>
-                                        <option value="openai/o3-mini">o3 Mini</option>
-                                        <!-- Google Gemini 3 Series (Latest) -->
-                                        <option value="google/gemini-3.1-pro-preview">Gemini 3.1 Pro Preview</option>
-                                        <option value="google/gemini-3-flash-preview">Gemini 3 Flash Preview</option>
-                                        <option value="google/gemini-3.1-flash-lite-preview">Gemini 3.1 Flash Lite Preview</option>
-
-                                        <!-- Meta Llama 4 Series (Latest) -->
-                                        <option value="meta-llama/llama-4-maverick">Llama 4 Maverick</option>
-                                        <!-- Meta Llama 3 Series -->
-                                        <option value="meta-llama/llama-3.3-70b-instruct">Llama 3.3 70B</option>
-                                        <option value="meta-llama/llama-3.1-405b-instruct">Llama 3.1 405B</option>
-                                        <!-- xAI Grok 4 Series (Latest) -->
-                                        <option value="x-ai/grok-4.20">Grok 4.20</option>
-                                        <option value="x-ai/grok-4.10">Grok 4.10</option>
-                                        <option value="x-ai/grok-4.1">Grok 4.1</option>
-                                        <!-- Google Gemma 4 Series (Latest) -->
-                                        <option value="google/gemma-4-31b-it">Gemma 4 31B</option>
-                                        <option value="google/gemma-4-26b-a4b">Gemma 4 26B A4B</option>
-                                        <!-- Google Gemma 3 Series -->
-                                        <option value="google/gemma-3-27b-it">Gemma 3 27B</option>
-                                        <!-- Alibaba Qwen -->
-                                        <option value="qwen/qwen-3.6-plus">Qwen 3.6 Plus</option>
-                                        <option value="qwen/qwen3.5-35b-a3b">Qwen 3.5 35B A3B</option>
-                                        <option value="qwen/qwen3.5-27b">Qwen 3.5 27B</option>
-                                        <option value="qwen/qwen3.5-9b">Qwen 3.5 9B</option>
-                                        <!-- DeepSeek -->
-                                        <option value="deepseek/deepseek-v3">DeepSeek V3</option>
-                                        <option value="deepseek/deepseek-r1">DeepSeek R1</option>
+                                        <optgroup label="Cheap Paid (~$0.02-0.05/1M tokens) ★">
+                                            <option value="mistralai/mistral-nemo" selected>Mistral Nemo — $0.02/1M ★</option>
+                                            <option value="meta-llama/llama-3.1-8b-instruct">Llama 3.1 8B — $0.02/1M</option>
+                                            <option value="google/gemma-3-4b-it">Gemma 3 4B — $0.04/1M</option>
+                                            <option value="openai/gpt-4o-mini">GPT-4o Mini — $0.15/1M</option>
+                                            <option value="google/gemini-flash-1.5">Gemini 1.5 Flash — $0.08/1M</option>
+                                        </optgroup>
+                                        <optgroup label="Free Models (rate-limited)">
+                                            <option value="google/gemma-3n-e2b-it:free">Gemma 3n E2B (Free)</option>
+                                            <option value="google/gemma-3-4b-it:free">Gemma 3 4B (Free)</option>
+                                            <option value="meta-llama/llama-3.2-3b-instruct:free">Llama 3.2 3B (Free)</option>
+                                        </optgroup>
+                                        <optgroup label="Premium Paid">
+                                            <option value="anthropic/claude-sonnet-4-5">Claude Sonnet 4.5</option>
+                                            <option value="openai/gpt-4o">GPT-4o</option>
+                                            <option value="google/gemini-2.0-flash-001">Gemini 2.0 Flash</option>
+                                            <option value="meta-llama/llama-3.3-70b-instruct">Llama 3.3 70B</option>
+                                            <option value="deepseek/deepseek-v3">DeepSeek V3</option>
+                                            <option value="x-ai/grok-3-mini">Grok 3 Mini</option>
+                                            <option value="qwen/qwen3.5-9b">Qwen 3.5 9B</option>
+                                            <option value="qwen/qwen3.5-9b">Qwen 3.5 9B</option>
+                                            <option value="deepseek/deepseek-v3">DeepSeek V3</option>
+                                            <option value="deepseek/deepseek-r1">DeepSeek R1</option>
+                                        </optgroup>
                                     </select>
-                                    <input type="text" id="targetModelInput" name="target_llm.model" class="local-model-input" style="display:none;" placeholder="Enter model name (e.g., llama3.1, mistral)" value="llama3.1">
+                                    <input type="text" id="targetModelInput" name="target_llm.model" class="local-model-input" style="display:none;" placeholder="e.g., llama3.1, mistral" value="llama3.1">
                                 </div>
                             </div>
                             <div class="form-row">
@@ -203,10 +222,20 @@
                             </div>
                         </div>
                     </div>
+                </div>
 
-                    <!-- Experiment Settings -->
-                    <div class="form-section">
-                        <h3>⚙️ Experiment Settings</h3>
+                <!-- Experiment Settings -->
+                <div class="card form-card">
+                    <div class="card-header">
+                        <div class="card-header-icon">
+                            <i data-lucide="flask-conical"></i>
+                        </div>
+                        <div>
+                            <h2 class="card-title">Experiment Settings</h2>
+                            <p class="card-desc">Tune iteration and evaluation parameters</p>
+                        </div>
+                    </div>
+                    <div class="card-body">
                         <div class="form-row">
                             <div class="form-group">
                                 <label for="maxIterations">Max Iterations</label>
@@ -233,56 +262,83 @@
                             </div>
                         </div>
                     </div>
+                </div>
 
-                    <!-- Parallel Execution -->
-                    <div class="form-section">
-                        <h3>🚀 Parallel Execution</h3>
-                        <div class="form-row">
+                <!-- Parallel & Robustness -->
+                <div class="two-col-grid">
+                    <div class="card form-card">
+                        <div class="card-header">
+                            <div class="card-header-icon">
+                                <i data-lucide="git-branch"></i>
+                            </div>
+                            <div>
+                                <h2 class="card-title">Parallel Execution</h2>
+                                <p class="card-desc">Evaluate candidates simultaneously</p>
+                            </div>
+                        </div>
+                        <div class="card-body">
                             <div class="form-group checkbox-group">
                                 <label class="checkbox-label">
                                     <input type="checkbox" id="parallelEnabled" name="experiment.parallel_enabled">
                                     <span>Enable Parallel Execution</span>
                                 </label>
                             </div>
-                        </div>
-                        <div class="form-row parallel-options" id="parallelOptions">
-                            <div class="form-group">
-                                <label for="parallelWorkers">Workers</label>
-                                <input type="number" id="parallelWorkers" name="experiment.parallel_workers" value="3" min="2" max="10">
-                            </div>
-                            <div class="form-group">
-                                <label for="parallelCandidates">Candidates per Iteration</label>
-                                <input type="number" id="parallelCandidates" name="experiment.parallel_candidates" value="3" min="2" max="10">
+                            <div class="form-row parallel-options" id="parallelOptions">
+                                <div class="form-group">
+                                    <label for="parallelWorkers">Workers</label>
+                                    <input type="number" id="parallelWorkers" name="experiment.parallel_workers" value="3" min="2" max="10">
+                                </div>
+                                <div class="form-group">
+                                    <label for="parallelCandidates">Candidates / Iteration</label>
+                                    <input type="number" id="parallelCandidates" name="experiment.parallel_candidates" value="3" min="2" max="10">
+                                </div>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Robustness Testing -->
-                    <div class="form-section">
-                        <h3>🛡️ Robustness Testing</h3>
-                        <div class="form-row">
+                    <div class="card form-card">
+                        <div class="card-header">
+                            <div class="card-header-icon">
+                                <i data-lucide="shield-check"></i>
+                            </div>
+                            <div>
+                                <h2 class="card-title">Robustness Testing</h2>
+                                <p class="card-desc">Test against adversarial inputs</p>
+                            </div>
+                        </div>
+                        <div class="card-body">
                             <div class="form-group checkbox-group">
                                 <label class="checkbox-label">
                                     <input type="checkbox" id="robustnessEnabled" name="robustness.enabled">
                                     <span>Enable Robustness Testing</span>
                                 </label>
                             </div>
-                        </div>
-                        <div class="form-row robustness-options" id="robustnessOptions">
-                            <div class="form-group">
-                                <label for="numVariants">Variants per Input</label>
-                                <input type="number" id="numVariants" name="robustness.num_variants" value="3" min="1" max="10">
-                            </div>
-                            <div class="form-group">
-                                <label for="robustnessThreshold">Score Threshold</label>
-                                <input type="number" id="robustnessThreshold" name="robustness.score_threshold" value="0.9" min="0" max="1" step="0.01">
+                            <div class="form-row robustness-options" id="robustnessOptions">
+                                <div class="form-group">
+                                    <label for="numVariants">Variants per Input</label>
+                                    <input type="number" id="numVariants" name="robustness.num_variants" value="3" min="1" max="10">
+                                </div>
+                                <div class="form-group">
+                                    <label for="robustnessThreshold">Score Threshold</label>
+                                    <input type="number" id="robustnessThreshold" name="robustness.score_threshold" value="0.9" min="0" max="1" step="0.01">
+                                </div>
                             </div>
                         </div>
                     </div>
+                </div>
 
-                    <!-- Storage Settings -->
-                    <div class="form-section">
-                        <h3>💾 Storage Settings</h3>
+                <!-- Storage Settings -->
+                <div class="card form-card">
+                    <div class="card-header">
+                        <div class="card-header-icon">
+                            <i data-lucide="database"></i>
+                        </div>
+                        <div>
+                            <h2 class="card-title">Storage Settings</h2>
+                            <p class="card-desc">Output directories and checkpoint frequency</p>
+                        </div>
+                    </div>
+                    <div class="card-body">
                         <div class="form-row">
                             <div class="form-group">
                                 <label for="resultsDir">Results Directory</label>
@@ -294,133 +350,242 @@
                             </div>
                         </div>
                     </div>
+                </div>
 
-                    <!-- Actions -->
-                    <div class="form-actions">
-                        <button type="button" class="btn btn-secondary" id="loadConfigBtn">📂 Load Config</button>
-                        <button type="button" class="btn btn-secondary" id="saveConfigBtn">💾 Save Config</button>
-                        <button type="button" class="btn btn-secondary" id="importStateBtn">📥 Import State</button>
-                        <button type="button" class="btn btn-primary" id="startBtn">🚀 Start Optimization</button>
-                    </div>
-                </form>
-            </div>
+                <!-- Actions -->
+                <div class="form-actions">
+                    <button type="button" class="btn btn-ghost" id="loadConfigBtn">
+                        <i data-lucide="folder-open"></i> Load Config
+                    </button>
+                    <button type="button" class="btn btn-ghost" id="saveConfigBtn">
+                        <i data-lucide="save"></i> Save Config
+                    </button>
+                    <button type="button" class="btn btn-ghost" id="importStateBtn">
+                        <i data-lucide="upload"></i> Import State
+                    </button>
+                    <button type="button" class="btn btn-primary" id="startBtn">
+                        <i data-lucide="play"></i> Start Optimization
+                    </button>
+                </div>
+            </form>
         </section>
 
         <!-- Dashboard Tab -->
         <section class="tab-content" id="dashboard">
-            <div class="dashboard-grid">
-                <!-- Stats Cards -->
-                <div class="stats-row">
-                    <div class="stat-card">
-                        <div class="stat-label">Iteration</div>
-                        <div class="stat-value" id="currentIteration">0</div>
+            <div class="page-header">
+                <div>
+                    <h1 class="page-title">Dashboard</h1>
+                    <p class="page-subtitle">Real-time optimization progress</p>
+                </div>
+                <div class="page-actions">
+                    <button class="btn btn-ghost btn-sm" id="exportStateBtn">
+                        <i data-lucide="download"></i> Export
+                    </button>
+                    <button class="btn btn-ghost btn-sm" id="refreshBtn">
+                        <i data-lucide="refresh-cw"></i> Refresh
+                    </button>
+                    <button class="btn btn-danger btn-sm" id="stopBtn" disabled>
+                        <i data-lucide="square"></i> Stop
+                    </button>
+                </div>
+            </div>
+
+            <!-- Error Banner -->
+            <div id="errorBanner" class="error-banner" style="display:none;"></div>
+
+            <!-- Stat Cards -->
+            <div class="stats-row">
+                <div class="stat-card">
+                    <div class="stat-icon stat-icon--indigo">
+                        <i data-lucide="repeat"></i>
                     </div>
-                    <div class="stat-card">
+                    <div class="stat-body">
+                        <div class="stat-label">Iteration</div>
+                        <div class="stat-value" id="currentIteration">0 / 0</div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon stat-icon--emerald">
+                        <i data-lucide="trending-up"></i>
+                    </div>
+                    <div class="stat-body">
                         <div class="stat-label">Best Score</div>
                         <div class="stat-value" id="bestScore">0.000</div>
                     </div>
-                    <div class="stat-card">
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon stat-icon--amber">
+                        <i data-lucide="clock"></i>
+                    </div>
+                    <div class="stat-body">
                         <div class="stat-label">Elapsed Time</div>
                         <div class="stat-value" id="elapsedTime">00:00:00</div>
                     </div>
-                    <div class="stat-card">
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon stat-icon--violet">
+                        <i data-lucide="activity"></i>
+                    </div>
+                    <div class="stat-body">
                         <div class="stat-label">Status</div>
                         <div class="stat-value" id="runStatus">Idle</div>
                     </div>
                 </div>
+            </div>
 
-                <!-- Charts -->
-                <div class="chart-container">
-                    <h3>Score History</h3>
-                    <div class="chart-wrapper">
-                        <canvas id="scoreChart" width="800" height="300"></canvas>
+            <!-- Score Chart (shown only on run completion) -->
+            <div class="card" id="scoreChartCard" style="display:none;">
+                <div class="card-header">
+                    <div class="card-header-icon">
+                        <i data-lucide="bar-chart-2"></i>
+                    </div>
+                    <div>
+                        <h2 class="card-title">Score History</h2>
+                        <p class="card-desc">Optimization progress over iterations</p>
                     </div>
                 </div>
+                <div class="card-body">
+                    <div class="chart-wrapper">
+                        <canvas id="scoreChart"></canvas>
+                    </div>
+                </div>
+            </div>
 
-                <!-- Best Prompt Display -->
-                <div class="prompt-display">
-                    <div class="prompt-header">
-                        <h3>🏆 Current Best Prompt</h3>
-                        <button class="btn btn-small btn-secondary" id="showDiffBtn">🔍 Show Changes</button>
+            <!-- Best Prompt -->
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-header-icon">
+                        <i data-lucide="award"></i>
+                    </div>
+                    <div>
+                        <h2 class="card-title">Prompt Tracker</h2>
+                        <p class="card-desc">Current test &amp; best found so far</p>
+                    </div>
+                    <button class="btn btn-ghost btn-sm ml-auto" id="showDiffBtn">
+                        <i data-lucide="diff"></i> Diff
+                    </button>
+                </div>
+                <div class="card-body">
+                    <div class="prompt-section-header">
+                        <span class="prompt-badge prompt-badge-current">Testing Now</span>
+                        <span class="prompt-meta-label" id="currentPromptMeta">iteration —</span>
+                    </div>
+                    <div class="prompt-box prompt-box-current" id="currentTestPromptBox">
+                        <p class="placeholder">Waiting for first iteration...</p>
+                    </div>
+
+                    <div class="prompt-section-header" style="margin-top:14px;">
+                        <span class="prompt-badge prompt-badge-best">Best Found</span>
+                        <span class="prompt-meta-label" id="bestPromptMeta">score — · iteration —</span>
                     </div>
                     <div class="prompt-box" id="bestPromptBox">
                         <p class="placeholder">Start optimization to see the best prompt...</p>
                     </div>
                 </div>
+            </div>
 
-                <!-- Live Logs -->
-                <div class="logs-container">
-                    <div class="logs-header">
-                        <h3>📜 Live Logs</h3>
-                        <button class="btn btn-small" id="clearLogsBtn">Clear</button>
+            <!-- Live Logs -->
+            <div class="card logs-card">
+                <div class="card-header">
+                    <div class="card-header-icon">
+                        <i data-lucide="terminal"></i>
                     </div>
-                    <div class="logs-box" id="logsBox">
-                        <p class="placeholder">Logs will appear here when optimization starts...</p>
+                    <div>
+                        <h2 class="card-title">Live Logs</h2>
+                        <p class="card-desc">Real-time output stream</p>
                     </div>
+                    <button class="btn btn-ghost btn-sm ml-auto" id="clearLogsBtn">
+                        <i data-lucide="trash-2"></i> Clear
+                    </button>
                 </div>
-
-                <!-- Control Buttons -->
-                <div class="control-buttons">
-                    <button class="btn btn-danger" id="stopBtn" disabled>⏹️ Stop</button>
-                    <button class="btn btn-primary" id="refreshBtn">🔄 Refresh</button>
-                    <button class="btn btn-secondary" id="exportStateBtn">📤 Export State</button>
+                <div class="logs-box" id="logsBox">
+                    <p class="placeholder">Logs will appear here when optimization starts...</p>
                 </div>
             </div>
         </section>
 
         <!-- Checkpoints Tab -->
         <section class="tab-content" id="checkpoints">
-            <div class="panel">
-                <h2>Checkpoint Manager</h2>
-                <p class="panel-desc">Load or resume from saved checkpoints</p>
-                
-                <div class="checkpoints-list" id="checkpointsList">
-                    <p class="placeholder">No checkpoints found. Run optimization to create checkpoints.</p>
+            <div class="page-header">
+                <div>
+                    <h1 class="page-title">Checkpoints</h1>
+                    <p class="page-subtitle">Resume from saved optimization states</p>
                 </div>
-                
-                <div class="checkpoints-actions">
-                    <button class="btn btn-secondary" id="refreshCheckpointsBtn">🔄 Refresh List</button>
+                <div class="page-actions">
+                    <button class="btn btn-ghost btn-sm" id="refreshCheckpointsBtn">
+                        <i data-lucide="refresh-cw"></i> Refresh
+                    </button>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-body">
+                    <div class="checkpoints-list" id="checkpointsList">
+                        <div class="empty-state">
+                            <i data-lucide="bookmark-x"></i>
+                            <p>No checkpoints found</p>
+                            <span>Run an optimization to create checkpoints automatically</span>
+                        </div>
+                    </div>
                 </div>
             </div>
         </section>
 
         <!-- Results Tab -->
         <section class="tab-content" id="results">
-            <div class="panel">
-                <h2>Final Results</h2>
-                <p class="panel-desc">View and export optimization results</p>
-                
-                <div class="results-content" id="resultsContent">
-                    <p class="placeholder">No results available yet. Complete an optimization to see results.</p>
+            <div class="page-header">
+                <div>
+                    <h1 class="page-title">Results</h1>
+                    <p class="page-subtitle">Final optimization outcomes and exports</p>
                 </div>
-                
-                <div class="results-actions" id="resultsActions" style="display: none;">
-                    <button class="btn btn-secondary" id="exportJsonBtn">📄 Export JSON</button>
-                    <button class="btn btn-secondary" id="exportTxtBtn">📝 Export Text</button>
-                    <button class="btn btn-secondary" id="exportStateBtn">📤 Export Full State</button>
+                <div class="page-actions results-actions" id="resultsActions" style="display:none;">
+                    <button class="btn btn-ghost btn-sm" id="exportJsonBtn">
+                        <i data-lucide="file-json"></i> Export JSON
+                    </button>
+                    <button class="btn btn-ghost btn-sm" id="exportTxtBtn">
+                        <i data-lucide="file-text"></i> Export Text
+                    </button>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-body">
+                    <div class="results-content" id="resultsContent">
+                        <div class="empty-state">
+                            <i data-lucide="inbox"></i>
+                            <p>No results yet</p>
+                            <span>Complete an optimization run to view results here</span>
+                        </div>
+                    </div>
                 </div>
             </div>
         </section>
-    </div>
 
-    <!-- Diff Modal -->
-    <div class="modal" id="diffModal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3>🔍 Prompt Changes</h3>
-                <button class="modal-close" id="closeDiffBtn">&times;</button>
+    </main>
+</div>
+
+<!-- Diff Modal -->
+<div class="modal" id="diffModal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <div class="modal-header-left">
+                <i data-lucide="git-compare"></i>
+                <h3>Prompt Changes</h3>
             </div>
-            <div class="modal-body">
-                <div id="diffContent">
-                    <p class="placeholder">No changes to display</p>
-                </div>
+            <button class="modal-close" id="closeDiffBtn">
+                <i data-lucide="x"></i>
+            </button>
+        </div>
+        <div class="modal-body">
+            <div id="diffContent">
+                <p class="placeholder">No changes to display</p>
             </div>
         </div>
     </div>
+</div>
 
-    <!-- Toast Notifications -->
-    <div class="toast-container" id="toastContainer"></div>
+<!-- Toast Notifications -->
+<div class="toast-container" id="toastContainer"></div>
 
-    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+<script>lucide.createIcons();</script>
 </body>
 </html>
